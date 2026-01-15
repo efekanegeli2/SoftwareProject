@@ -1,45 +1,19 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
-import Login from './pages/Login';
-import StudentPanel from './pages/StudentPanel';
-import TeacherPanel from './pages/TeacherPanel';
-import AdminPanel from './pages/AdminPanel';
-import ProtectedRoute from './components/ProtectedRoute';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import Login from '../Login';
+import Dashboard from './pages/dashboard';
+import Profile from './pages/Profile';
+import Exam from './pages/Exam'; // Bunu birazdan oluşturacağız
 
 function App() {
   return (
-    <AuthProvider>
-      <Router>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route
-            path="/student"
-            element={
-              <ProtectedRoute allowedRoles={['STUDENT']}>
-                <StudentPanel />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/teacher"
-            element={
-              <ProtectedRoute allowedRoles={['TEACHER', 'ADMIN']}>
-                <TeacherPanel />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin"
-            element={
-              <ProtectedRoute allowedRoles={['ADMIN']}>
-                <AdminPanel />
-              </ProtectedRoute>
-            }
-          />
-          <Route path="/" element={<Navigate to="/login" replace />} />
-        </Routes>
-      </Router>
-    </AuthProvider>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Login />} />
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/profile" element={<Profile />} />
+        <Route path="/exam" element={<Exam />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
 
