@@ -1,8 +1,8 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import Login from '../Login';
-import Dashboard from './pages/dashboard';
-import Profile from './pages/Profile';
-import Exam from './pages/Exam'; // Bunu birazdan oluşturacağız
+import Login from './pages/Login';         
+import Dashboard from './pages/Dashboard'; 
+import Profile from './pages/Profile';     
+import Exam from './pages/Exam';           
 
 function App() {
   return (
