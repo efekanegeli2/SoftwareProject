@@ -1,137 +1,94 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import axios from 'axios';
 
-const Login = () => {
+function Login() {
+  const [isLogin, setIsLogin] = useState(true); 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [role, setRole] = useState('STUDENT');
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const [success, setSuccess] = useState(''); // Başarı mesajı için
   const navigate = useNavigate();
-
-  const handleDemoLogin = async (role) => {
-    setLoading(true);
-    setError('');
-    
-    const result = await login(null, null, role);
-    
-    if (result.success) {
-      const route = role === 'STUDENT' ? '/student' : role === 'TEACHER' ? '/teacher' : '/admin';
-      navigate(route);
-    } else {
-      setError(result.error);
-    }
-    
-    setLoading(false);
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
     setError('');
+    setSuccess('');
 
-    const result = await login(email, password);
+    const API_URL = 'http://localhost:3000/auth'; 
 
-    if (result.success) {
-      const route = result.user.role === 'STUDENT' ? '/student' : 
-                   result.user.role === 'TEACHER' ? '/teacher' : '/admin';
-      navigate(route);
-    } else {
-      setError(result.error);
+    try {
+      if (isLogin) {
+        // --- GİRİŞ YAPMA KISMI ---
+        const response = await axios.post(`${API_URL}/login`, { email, password });
+        
+        // Token varsa kaydet ve yönlendir
+        if (response.data.token) {
+          localStorage.setItem('token', response.data.token);
+          localStorage.setItem('userRole', response.data.user.role);
+          navigate('/dashboard'); 
+        }
+      } else {
+        // --- KAYIT OLMA KISMI ---
+        await axios.post(`${API_URL}/register`, { email, password, role });
+        
+        // Kayıt başarılıysa:
+        setIsLogin(true); // Giriş ekranına çevir
+        setSuccess('Kayıt başarılı! Lütfen oluşturduğun bilgilerle giriş yap.');
+        // Formu temizle
+        setEmail('');
+        setPassword('');
+      }
+
+    } catch (err) {
+      console.error(err);
+      setError(err.response?.data?.error || 'Bir hata oluştu.');
     }
-
-    setLoading(false);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl p-8 w-full max-w-md">
-        <h1 className="text-3xl font-bold text-center text-gray-800 mb-8">
-          English Assessment System
-        </h1>
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', backgroundColor: '#f0f2f5' }}>
+      <div style={{ background: 'white', padding: '2rem', borderRadius: '10px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', width: '350px' }}>
+        <h2 style={{ textAlign: 'center', marginBottom: '1.5rem', color: '#333' }}>
+          {isLogin ? 'Giriş Yap' : 'Kayıt Ol'}
+        </h2>
 
-        {/* Demo Login Buttons */}
-        <div className="mb-6">
-          <p className="text-sm text-gray-600 mb-3 text-center">Quick Demo Login:</p>
-          <div className="grid grid-cols-3 gap-2">
-            <button
-              onClick={() => handleDemoLogin('STUDENT')}
-              disabled={loading}
-              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 text-sm"
-            >
-              Student
-            </button>
-            <button
-              onClick={() => handleDemoLogin('TEACHER')}
-              disabled={loading}
-              className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50 text-sm"
-            >
-              Teacher
-            </button>
-            <button
-              onClick={() => handleDemoLogin('ADMIN')}
-              disabled={loading}
-              className="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 disabled:opacity-50 text-sm"
-            >
-              Admin
-            </button>
-          </div>
-        </div>
+        {/* Hata Mesajı (Kırmızı) */}
+        {error && <div style={{ color: 'red', marginBottom: '1rem', padding: '10px', background: '#ffe6e6', borderRadius: '5px', fontSize: '0.9rem' }}>{error}</div>}
+        
+        {/* Başarı Mesajı (Yeşil) */}
+        {success && <div style={{ color: 'green', marginBottom: '1rem', padding: '10px', background: '#e6ffe6', borderRadius: '5px', fontSize: '0.9rem' }}>{success}</div>}
 
-        <div className="relative mb-6">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-gray-300"></div>
-          </div>
-          <div className="relative flex justify-center text-sm">
-            <span className="px-2 bg-white text-gray-500">Or login with credentials</span>
-          </div>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {error && (
-            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-              {error}
-            </div>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <input
+            type="email" placeholder="Email Adresi" value={email} onChange={(e) => setEmail(e.target.value)} required
+            style={{ padding: '10px', borderRadius: '5px', border: '1px solid #ccc' }}
+          />
+          <input
+            type="password" placeholder="Şifre" value={password} onChange={(e) => setPassword(e.target.value)} required
+            style={{ padding: '10px', borderRadius: '5px', border: '1px solid #ccc' }}
+          />
+          {!isLogin && (
+            <select value={role} onChange={(e) => setRole(e.target.value)} style={{ padding: '10px', borderRadius: '5px', border: '1px solid #ccc' }}>
+              <option value="STUDENT">Öğrenci</option>
+              <option value="TEACHER">Öğretmen</option>
+            </select>
           )}
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Email
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Password
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 disabled:opacity-50 font-medium"
-          >
-            {loading ? 'Logging in...' : 'Login'}
+          <button type="submit" style={{ padding: '10px', borderRadius: '5px', border: 'none', backgroundColor: '#4F46E5', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}>
+            {isLogin ? 'Giriş Yap' : 'Hesap Oluştur'}
           </button>
         </form>
+
+        <p style={{ marginTop: '1rem', textAlign: 'center', fontSize: '0.9rem', color: '#666' }}>
+          {isLogin ? "Hesabın yok mu?" : "Zaten hesabın var mı?"} <br />
+          <span onClick={() => { setIsLogin(!isLogin); setError(''); setSuccess(''); }} style={{ color: '#4F46E5', cursor: 'pointer', fontWeight: 'bold' }}>
+            {isLogin ? "Hemen Kayıt Ol" : "Giriş Yap"}
+          </span>
+        </p>
       </div>
     </div>
   );
-};
+}
 
 export default Login;
