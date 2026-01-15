@@ -1,0 +1,37 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id       Int      @id @default(autoincrement())
+  email    String   @unique
+  password String
+  role     String   @default("STUDENT") // Enum yerine String yaptık
+  exams    Exam[]
+}
+
+model Exam {
+  id           Int      @id @default(autoincrement())
+  studentId    Int
+  student      User     @relation(fields: [studentId], references: [id])
+  status       String   @default("PENDING")
+  overallScore Float?
+  cefrLevel    String?
+  answers      Answer[]
+  createdAt    DateTime @default(now())
+}
+
+model Answer {
+  id           Int    @id @default(autoincrement())
+  examId       Int
+  exam         Exam   @relation(fields: [examId], references: [id], onDelete: Cascade)
+  type         String // Enum yerine String yaptık
+  questionText String
+  userResponse String
+  aiScore      Float?
+}

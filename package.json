@@ -1,0 +1,15 @@
+{
+  "name": "english-assessment-system",
+  "version": "1.0.0",
+  "description": "English Proficiency Assessment System - Microservices Architecture",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:ai\" \"npm run dev:client\"",
+    "dev:server": "cd server && npm run dev",
+    "dev:ai": "cd ai-service && python -m uvicorn main:app --reload --port 8001",
+    "dev:client": "cd client && npm run dev",
+    "install:all": "npm install && cd server && npm install && cd ../client && npm install && cd ../ai-service && pip install -r requirements.txt"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
