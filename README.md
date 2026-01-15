@@ -112,3 +112,4 @@ You can also register new users manually:
 - **Authentication**: JWT-based authentication
 - **CORS**: Enabled for all origins (configure for production)
 - **Scoring**: AI Service calculates scores with weighted components (MCQ 40%, Writing 35%, Speaking 25%)
+# SoftwareProject
