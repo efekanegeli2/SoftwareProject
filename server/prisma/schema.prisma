@@ -1,34 +1,221 @@
-// Bu dosya veritabanı yapını belirler
+// Prisma schema for English Proficiency Assessment System
+// NOTE: All "password" values are bcrypt hashes (never plaintext).
 
 generator client {
   provider      = "prisma-client-js"
-  binaryTargets = ["native", "windows"]
+  // "native" lets Prisma download the correct engine for the current OS.
+  // We also include Windows explicitly so the repo runs out-of-the-box on Windows dev machines.
+  // Debian target is added to support common Linux environments (CI / containers).
+  binaryTargets = ["native", "windows", "debian-openssl-3.0.x"]
 }
 
 datasource db {
   provider = "sqlite"
+  // With schema in ./prisma, "file:./dev.db" resolves to ./prisma/dev.db
   url      = env("DATABASE_URL")
 }
 
-// Kullanıcı Tablosu
 model User {
-  id       Int          @id @default(autoincrement())
-  email    String       @unique
-  password String
-  name     String?
-  results  ExamResult[] // Bir kullanıcının birden fazla sınav sonucu olabilir
+  id              Int                 @id @default(autoincrement())
+  email           String              @unique
+  password        String
+  // SQLite connector in Prisma doesn't support enums; keep role as TEXT.
+  role            String              @default("STUDENT")
+  name            String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  emailVerifiedAt DateTime?
+
+  // Relations
+  examResults     ExamResult[]
+  attempts        ExamAttempt[]
+  activeExam      ActiveExam?
+  notifications   Notification[]
+  resetTokens     PasswordResetToken[]
+}
+
+// Represents an exam session/attempt (including generated content references and responses)
+model ExamAttempt {
+  id                 Int              @id @default(autoincrement())
+  userId             Int
+  // SQLite connector in Prisma doesn't support enums; keep status as TEXT.
+  status             String           @default("IN_PROGRESS")
+  createdAt          DateTime         @default(now())
+  submittedAt        DateTime?
+
+  // Generated content references/snapshots
+  // SQLite connector in Prisma doesn't support Json.
+  // Store JSON-serialized strings (arrays / objects) and parse in the data layer.
+  mcqQuestionIds      String?
+  listeningScenarioId Int?
+  writingTopicId     Int?
+  speakingSetId      Int?
+
+  // Response snapshots
+  mcqAnswers         String?
+  listeningAnswers   String?
+  writingAnswer      String?
+  speakingTranscript String?
+  speakingScore      Int?
+
+  // Relations
+  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listeningScenario  ListeningScenario? @relation(fields: [listeningScenarioId], references: [id])
+  writingTopic       WritingTopic?    @relation(fields: [writingTopicId], references: [id])
+  speakingSet        SpeakingSet?     @relation(fields: [speakingSetId], references: [id])
+  result             ExamResult?
+  cheatingEvents     CheatingEvent[]
+  audioResponses     AudioResponse[]
+
+  // 1-1 back relation for ActiveExam
+  activeExam         ActiveExam?
+}
+
+// Active exam pointer keyed by userId (matches current API flow: generate -> evaluate -> clear)
+model ActiveExam {
+  userId        Int      @id
+  attemptId     Int      @unique
+  createdAt     DateTime @default(now())
+
+  // Correct-answer maps are stored as Json to keep current grading logic intact.
+  // Keys are question IDs (stringified) and values are correct option strings.
+  // SQLite connector in Prisma doesn't support Json.
+  // Store JSON-serialized strings and parse in the data layer.
+  mcqCorrect        String
+  listeningCorrect  String
+
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attempt      ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
 }
 
 model ExamResult {
   id             Int      @id @default(autoincrement())
+  attemptId      Int      @unique
+  userId         Int
+
   score          Int
   grammarScore   Int
   writingScore   Int
   speakingScore  Int
   listeningScore Int
-  level          String   @default("A1") // YENİ: Seviye bilgisi (A1, B2, C1 vs.)
-  date           DateTime @default(now())
-  
-  userId         Int
-  user           User     @relation(fields: [userId], references: [id])
+  level          String   @default("A1 (Beginner)")
+  createdAt      DateTime @default(now())
+
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attempt        ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+}
+
+// --- Content / Question Bank ---
+
+model McqQuestion {
+  id         Int      @id @default(autoincrement())
+  text       String
+  // JSON-serialized string array
+  options    String
+  correct    String
+  difficulty String?
+  createdAt  DateTime @default(now())
+}
+
+model ListeningScenario {
+  id         Int               @id @default(autoincrement())
+  topic      String
+  passage    String
+  difficulty String?
+  createdAt  DateTime          @default(now())
+
+  questions  ListeningQuestion[]
+  attempts   ExamAttempt[]
+}
+
+model ListeningQuestion {
+  id         Int      @id @default(autoincrement())
+  scenarioId Int
+
+  // Client currently expects IDs like "L1".."L5" for listening questions
+  qid        String
+  text       String
+  // JSON-serialized string array
+  options    String
+  correct    String
+
+  scenario   ListeningScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+
+  @@unique([scenarioId, qid])
+}
+
+model WritingTopic {
+  id         Int      @id @default(autoincrement())
+  topic      String
+  difficulty String?
+  createdAt  DateTime @default(now())
+
+  attempts   ExamAttempt[]
+}
+
+model SpeakingSet {
+  id        Int            @id @default(autoincrement())
+  createdAt DateTime       @default(now())
+
+  prompts   SpeakingPrompt[]
+  attempts  ExamAttempt[]
+}
+
+model SpeakingPrompt {
+  id     Int    @id @default(autoincrement())
+  setId  Int
+  text   String
+
+  set    SpeakingSet @relation(fields: [setId], references: [id], onDelete: Cascade)
+}
+
+// --- Integrity / Notifications (optional but aligned with FR15 / FR18) ---
+
+model CheatingEvent {
+  id        Int      @id @default(autoincrement())
+  attemptId Int
+  type      String
+  // JSON-serialized object (optional)
+  details   String?
+  createdAt DateTime @default(now())
+
+  attempt   ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+}
+
+model AudioResponse {
+  id           Int      @id @default(autoincrement())
+  attemptId    Int
+  promptIndex  Int
+  storageUrl   String
+  mimeType     String?
+  durationMs   Int?
+  asrText       String?
+  asrConfidence Float?
+  createdAt    DateTime @default(now())
+
+  attempt      ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  channel   String
+  type      String
+  title     String
+  message   String
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PasswordResetToken {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  token     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

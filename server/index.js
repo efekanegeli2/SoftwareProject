@@ -15,9 +15,10 @@ import {
   deleteUser,
   addExamResult,
   getExamResultsForUser,
-  setActiveExam,
+  generateExamForUser,
   getActiveExam,
-  clearActiveExam
+  clearActiveExam,
+  logCheatingEvent
 } from './store.js';
 
 const app = express();
@@ -73,7 +74,7 @@ app.post('/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    const user = getUserByEmail(email);
+    const user = await getUserByEmail(email);
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
     const ok = await bcrypt.compare(password, user.password);
@@ -163,48 +164,27 @@ const SPEAKING_SETS = [
 ];
 
 // --- EXAM ---
-app.get('/api/exam/generate', authenticate, requireRole('STUDENT'), (req, res) => {
-  const userId = req.user.id;
-
-  const shuffled = [...ADVANCED_QUESTION_BANK].sort(() => 0.5 - Math.random());
-  const picked = shuffled.slice(0, 15).map((q, idx) => ({ ...q, id: idx + 1 }));
-
-  const randomTopic = WRITING_TOPICS[Math.floor(Math.random() * WRITING_TOPICS.length)];
-  const randomListening = LISTENING_SCENARIOS[Math.floor(Math.random() * LISTENING_SCENARIOS.length)];
-  const randomSpeaking = SPEAKING_SETS[Math.floor(Math.random() * SPEAKING_SETS.length)];
-
-  // Store correct maps so we can grade listening+mcq accurately without DB
-  const mcqCorrect = {};
-  picked.forEach(q => {
-    mcqCorrect[String(q.id)] = q.correct;
-  });
-  const listeningCorrect = {};
-  randomListening.questions.forEach(q => {
-    listeningCorrect[String(q.id)] = q.correct;
-  });
-
-  setActiveExam(userId, {
-    createdAt: new Date().toISOString(),
-    mcqCorrect,
-    listeningCorrect
-  });
-
-  res.json({
-    questions: picked,
-    listeningPassage: randomListening.passage,
-    listeningQuestions: randomListening.questions,
-    writingTopic: randomTopic,
-    speakingSentences: randomSpeaking
-  });
+app.get('/api/exam/generate', authenticate, requireRole('STUDENT'), async (req, res) => {
+  try {
+    const userId = req.user.id;
+    // Pull randomized content from the DB (question bank, scenarios, topics, speaking prompts)
+    // and persist the active attempt (FR11, FR20).
+    const payload = await generateExamForUser(userId);
+    res.json(payload);
+  } catch (e) {
+    console.error('Generate exam error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
-app.post('/api/exam/evaluate', authenticate, requireRole('STUDENT'), (req, res) => {
-  const userId = req.user.id;
-  const { mcqAnswers, listeningAnswers, writingAnswer, speakingScore } = req.body || {};
+app.post('/api/exam/evaluate', authenticate, requireRole('STUDENT'), async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { mcqAnswers, listeningAnswers, writingAnswer, speakingTranscript, speakingScore } = req.body || {};
 
-  const active = getActiveExam(userId);
-  const mcqCorrect = active?.mcqCorrect || {};
-  const listeningCorrect = active?.listeningCorrect || {};
+    const active = await getActiveExam(userId);
+    const mcqCorrect = active?.mcqCorrect || {};
+    const listeningCorrect = active?.listeningCorrect || {};
 
   // 1) Grammar (45 pts) => 15 * 3
   let grammarScore = 0;
@@ -241,101 +221,153 @@ app.post('/api/exam/evaluate', authenticate, requireRole('STUDENT'), (req, res) 
   const totalScore = grammarScore + listeningScore + writingScore + speakingPts;
   const cefrLevel = calculateCEFR(totalScore);
 
-  // Persist result
-  const saved = addExamResult(userId, {
-    score: totalScore,
-    grammarScore,
-    writingScore,
-    speakingScore: speakingPts,
-    listeningScore,
-    level: cefrLevel
-  });
+    // Persist result + student's submission snapshot (FR7, FR20)
+    const saved = await addExamResult(userId, {
+      score: totalScore,
+      grammarScore,
+      writingScore,
+      speakingScore: speakingPts,
+      listeningScore,
+      level: cefrLevel,
+      mcqAnswers: mcqAnswers ?? null,
+      listeningAnswers: listeningAnswers ?? null,
+      writingAnswer: writingAnswer ?? null,
+      speakingTranscript: speakingTranscript ?? null
+    });
 
-  clearActiveExam(userId);
+    await clearActiveExam(userId);
 
-  res.json({
-    totalScore,
-    cefrLevel,
-    details: {
-      grammar: grammarScore,
-      listening: listeningScore,
-      writing: { score: writingScore },
-      speaking: { score: speakingPts }
-    },
-    savedExamId: saved.id
-  });
+    res.json({
+      totalScore,
+      cefrLevel,
+      details: {
+        grammar: grammarScore,
+        listening: listeningScore,
+        writing: { score: writingScore },
+        speaking: { score: speakingPts }
+      },
+      savedExamId: saved.id
+    });
+  } catch (e) {
+    console.error('Evaluate exam error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// --- INTEGRITY (FR15) ---
+// Client can call this when it detects tab-switch / focus loss, etc.
+app.post('/api/integrity/event', authenticate, requireRole('STUDENT'), async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { type, details } = req.body || {};
+    if (!type) return res.status(400).json({ error: 'type is required' });
+    await logCheatingEvent(userId, String(type), details ?? null);
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Integrity event error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // --- DASHBOARD (STUDENT) ---
-app.get('/api/dashboard/profile', authenticate, requireRole('STUDENT'), (req, res) => {
-  const userId = req.user.id;
-  const user = getUserById(userId);
-  if (!user) return res.status(404).json({ error: 'User not found' });
+app.get('/api/dashboard/profile', authenticate, requireRole('STUDENT'), async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const user = await getUserById(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
 
-  const history = getExamResultsForUser(userId);
-  const totalExams = history.length;
-  const averageScore = totalExams > 0 ? Math.floor(history.reduce((a, r) => a + (r.score || 0), 0) / totalExams) : 0;
-  const lastExamDate = totalExams > 0 ? history[0].date : null;
+    const history = await getExamResultsForUser(userId);
+    const totalExams = history.length;
+    const averageScore = totalExams > 0 ? Math.floor(history.reduce((a, r) => a + (r.score || 0), 0) / totalExams) : 0;
+    const lastExamDate = totalExams > 0 ? history[0].date : null;
 
-  res.json({
-    user: { id: user.id, name: user.email?.split('@')[0], email: user.email },
-    stats: { totalExams, averageScore, lastExamDate },
-    history
-  });
+    res.json({
+      user: { id: user.id, name: user.email?.split('@')[0], email: user.email },
+      stats: { totalExams, averageScore, lastExamDate },
+      history
+    });
+  } catch (e) {
+    console.error('Profile dashboard error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // --- TEACHER ---
-app.get('/api/dashboard/teacher', authenticate, requireRole('TEACHER', 'ADMIN'), (req, res) => {
-  const users = listUsers().filter(u => u.role === 'STUDENT');
-  const rows = users.map(u => {
-    const history = getExamResultsForUser(u.id);
-    const latest = history[0] || null;
-    const totalExams = history.length;
-    const averageScore = totalExams > 0 ? Math.floor(history.reduce((a, r) => a + (r.score || 0), 0) / totalExams) : 0;
-    return {
-      id: u.id,
-      email: u.email,
-      totalExams,
-      averageScore,
-      latest: latest
-        ? { date: latest.date, score: latest.score, level: latest.level }
-        : null
-    };
-  });
-  res.json(rows);
+app.get('/api/dashboard/teacher', authenticate, requireRole('TEACHER', 'ADMIN'), async (req, res) => {
+  try {
+    const users = (await listUsers()).filter(u => u.role === 'STUDENT');
+
+    const rows = await Promise.all(
+      users.map(async (u) => {
+        const history = await getExamResultsForUser(u.id);
+        const latest = history[0] || null;
+        const totalExams = history.length;
+        const averageScore = totalExams > 0 ? Math.floor(history.reduce((a, r) => a + (r.score || 0), 0) / totalExams) : 0;
+        return {
+          id: u.id,
+          email: u.email,
+          totalExams,
+          averageScore,
+          latest: latest ? { date: latest.date, score: latest.score, level: latest.level } : null
+        };
+      })
+    );
+
+    res.json(rows);
+  } catch (e) {
+    console.error('Teacher dashboard error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
-app.get('/api/dashboard/teacher/student/:id', authenticate, requireRole('TEACHER', 'ADMIN'), (req, res) => {
-  const id = Number(req.params.id);
-  const user = getUserById(id);
-  if (!user || user.role !== 'STUDENT') return res.status(404).json({ error: 'Student not found' });
-  const history = getExamResultsForUser(id);
-  res.json({ id: user.id, email: user.email, history });
+app.get('/api/dashboard/teacher/student/:id', authenticate, requireRole('TEACHER', 'ADMIN'), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const user = await getUserById(id);
+    if (!user || user.role !== 'STUDENT') return res.status(404).json({ error: 'Student not found' });
+    const history = await getExamResultsForUser(id);
+    res.json({ id: user.id, email: user.email, history });
+  } catch (e) {
+    console.error('Teacher student dashboard error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // --- ADMIN ---
-app.get('/api/dashboard/admin', authenticate, requireRole('ADMIN'), (req, res) => {
-  const users = listUsers();
-  const totalUsers = users.length;
-  const students = users.filter(u => u.role === 'STUDENT').length;
-  const teachers = users.filter(u => u.role === 'TEACHER').length;
-  const admins = users.filter(u => u.role === 'ADMIN').length;
-  // total exams across users
-  const totalExams = users.reduce((acc, u) => acc + getExamResultsForUser(u.id).length, 0);
-  res.json({
-    stats: { totalUsers, students, teachers, admins, totalExams },
-    users
-  });
+app.get('/api/dashboard/admin', authenticate, requireRole('ADMIN'), async (req, res) => {
+  try {
+    const users = await listUsers();
+    const totalUsers = users.length;
+    const students = users.filter(u => u.role === 'STUDENT').length;
+    const teachers = users.filter(u => u.role === 'TEACHER').length;
+    const admins = users.filter(u => u.role === 'ADMIN').length;
+
+    const histories = await Promise.all(users.map(u => getExamResultsForUser(u.id)));
+    const totalExams = histories.reduce((acc, h) => acc + h.length, 0);
+
+    res.json({
+      stats: { totalUsers, students, teachers, admins, totalExams },
+      users
+    });
+  } catch (e) {
+    console.error('Admin dashboard error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
-app.delete('/api/dashboard/admin/user/:id', authenticate, requireRole('ADMIN'), (req, res) => {
-  const targetId = Number(req.params.id);
-  if (targetId === Number(req.user.id)) {
-    return res.status(400).json({ error: 'You cannot delete yourself' });
+app.delete('/api/dashboard/admin/user/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
+  try {
+    const targetId = Number(req.params.id);
+    if (targetId === Number(req.user.id)) {
+      return res.status(400).json({ error: 'You cannot delete yourself' });
+    }
+    const ok = await deleteUser(targetId);
+    if (!ok) return res.status(404).json({ error: 'User not found' });
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Delete user error:', e);
+    res.status(500).json({ error: 'Internal server error' });
   }
-  const ok = deleteUser(targetId);
-  if (!ok) return res.status(404).json({ error: 'User not found' });
-  res.json({ success: true });
 });
 
 async function start() {

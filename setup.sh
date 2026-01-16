@@ -15,7 +15,8 @@ npm install
 if [ ! -f .env ]; then
     echo "📝 Creating .env file..."
     cat > .env << EOF
-DATABASE_URL="file:./prisma/dev.db"
+# NOTE: Prisma schema lives in ./prisma, so sqlite relative path resolves to ./prisma/dev.db
+DATABASE_URL="file:./dev.db"
 JWT_SECRET="your-super-secret-jwt-key-change-in-production"
 AI_SERVICE_URL="http://localhost:8001"
 PORT=3000
