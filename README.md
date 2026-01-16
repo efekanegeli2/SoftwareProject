@@ -18,11 +18,19 @@ A production-ready microservices-based English proficiency assessment system wit
 
 ### Installation Steps
 
+
 1. **Install dependencies (server + client):**
 ```bash
 npm run install:all
 ```
-2. **Start (server + client):**
+2. **Install database (Use this commands only on the first boot):**
+```bash
+cd server
+npm install
+npx prisma migrate dev
+npx prisma generate
+```
+3. **Start (server + client):**
 ```bash
 npm run dev
 ```
