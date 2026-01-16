@@ -8,6 +8,12 @@ import dashboardRoutes from './routes/dashboard.js';
 
 dotenv.config();
 
+// Fallback environment variables if .env file is missing
+process.env.DATABASE_URL = process.env.DATABASE_URL || "file:./prisma/dev.db";
+process.env.JWT_SECRET = process.env.JWT_SECRET || "your-super-secret-jwt-key-change-in-production";
+process.env.AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8001";
+process.env.PORT = process.env.PORT || 3000;
+
 const app = express();
 const prisma = new PrismaClient();
 
@@ -27,70 +33,39 @@ app.get('/health', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-// --- YAPAY ZEKA SINAV OLUŞTURUCU (MOCK AI) ---
-app.get('/api/exam/generate', (req, res) => {
-  console.log("AI Sınav isteği aldı, sorular hazırlanıyor...");
+// --- ADMIN API ENDPOINTS ---
+// Admin soru üretme endpoint'i
+app.post('/api/admin/generate-question', async (req, res) => {
+  const { topic, difficulty, count } = req.body;
 
-  // 1. Havuzdaki Sorular (Genişletilebilir)
-  const questionBank = [
-    { text: "I _____ a student.", options: ["is", "are", "am", "be"], correct: "am" },
-    { text: "She _____ to the gym every day.", options: ["go", "goes", "going", "gone"], correct: "goes" },
-    { text: "They _____ football right now.", options: ["play", "plays", "are playing", "played"], correct: "are playing" },
-    { text: "_____ you like coffee?", options: ["Do", "Does", "Is", "Are"], correct: "Do" },
-    { text: "Yesterday, I _____ to the cinema.", options: ["go", "gone", "went", "was"], correct: "went" },
-    { text: "This is the _____ book I have ever read.", options: ["good", "better", "best", "goodest"], correct: "best" },
-    { text: "If it rains, we _____ stay at home.", options: ["will", "would", "are", "have"], correct: "will" },
-    { text: "I have lived here _____ 2010.", options: ["for", "since", "ago", "in"], correct: "since" },
-    { text: "He is interested _____ learning Spanish.", options: ["on", "at", "in", "with"], correct: "in" },
-    { text: "I didn't _____ the answer.", options: ["know", "knew", "known", "knows"], correct: "know" },
-    { text: "Where _____ you born?", options: ["was", "were", "are", "did"], correct: "were" },
-    { text: "The car was _____ by my father.", options: ["wash", "washed", "washing", "washes"], correct: "washed" },
-    { text: "She told me that she _____ busy.", options: ["is", "was", "were", "has"], correct: "was" },
-    { text: "You _____ wear a seatbelt.", options: ["must", "should", "might", "can"], correct: "must" },
-    { text: "I enjoy _____ movies.", options: ["watch", "watching", "to watch", "watched"], correct: "watching" },
-    { text: "This tea is too hot _____ drink.", options: ["to", "for", "that", "so"], correct: "to" },
-    { text: "Water _____ at 100 degrees Celsius.", options: ["boil", "boils", "boiling", "boiled"], correct: "boils" },
-    { text: "I look forward _____ from you.", options: ["hear", "to hear", "hearing", "to hearing"], correct: "to hearing" },
-    { text: "She is good _____ math.", options: ["in", "at", "on", "with"], correct: "at" },
-    { text: "Have you ever _____ to Paris?", options: ["been", "gone", "went", "go"], correct: "been" }
-  ];
+  try {
+    // AI Service'e istek gönder
+    const aiPayload = {
+      topic: topic || 'grammar',
+      difficulty: difficulty || 'intermediate',
+      count: Math.min(count || 1, 10) // Max 10 soru
+    };
 
-  const writingTopics = [
-    "Describe your dream holiday. Where would you go and why?",
-    "What are the advantages and disadvantages of technology?",
-    "Do you think money can buy happiness? Why or why not?",
-    "Describe a person who has influenced you the most."
-  ];
+    const aiResponse = await axios.post('http://localhost:8001/generate-questions', aiPayload);
 
-  const speakingSets = [
-    ["Technology connects us.", "I like learning English.", "The weather is nice today."],
-    ["Health is wealth.", "Books are our best friends.", "Travel broadens the mind."],
-    ["Practice makes perfect.", "Time is money.", "Honesty is the best policy."]
-  ];
+    const response = {
+      success: true,
+      questions: aiResponse.data
+    };
 
-  // 2. Rastgele 10 Soru Seç (AI Logiği)
-  // Soruları karıştır
-  const shuffledQuestions = questionBank.sort(() => 0.5 - Math.random());
-  // İlk 10 tanesini al
-  const selectedQuestions = shuffledQuestions.slice(0, 10).map((q, index) => ({
-    id: index + 1, // Frontend için ID veriyoruz
-    text: q.text,
-    options: q.options.sort(() => 0.5 - Math.random()), // Şıkları da karıştır
-    correct: q.correct
-  }));
+    res.json(response);
 
-  // 3. Rastgele Writing ve Speaking Konusu Seç
-  const randomTopic = writingTopics[Math.floor(Math.random() * writingTopics.length)];
-  const randomSpeaking = speakingSets[Math.floor(Math.random() * speakingSets.length)];
-
-  // 4. Paketi Frontend'e Gönder
-  res.json({
-    questions: selectedQuestions,
-    writingTopic: randomTopic,
-    speakingSentences: randomSpeaking
-  });
+  } catch (error) {
+    console.error('AI Service soru üretme hatası:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'AI ile soru üretilemedi',
+      questions: []
+    });
+  }
 });
-// --- YAPAY ZEKA KODU BITTI ---
+
+// --- YAPAY ZEKA KODU KALDIRILDI - exam.js'de yeni kod var ---
 
 
 app.listen(PORT, () => {
@@ -108,46 +83,98 @@ export { prisma };
 // --- JSON Veri Okuma Limiti (Ses dosyası için gerekebilir) ---
 app.use(express.json({ limit: '50mb' })); // Büyük veriler için limit artırımı
 
-// --- YAPAY ZEKA DEĞERLENDİRME MOTORU (MOCK) ---
-app.post('/api/exam/evaluate', (req, res) => {
-  // speakingScore artık frontend'den geliyor!
-  const { mcqAnswers, writingAnswer, speakingTranscript, speakingScore } = req.body;
+  // Old evaluate endpoint removed - now handled in exam.js
+app.post('/api/exam/evaluate', async (req, res) => {
+    const { mcqAnswers, writingAnswer, speakingTranscript, speakingScore } = req.body;
 
-  console.log("Gerçekçi Sınav Değerlendirmesi Başladı...");
+    // #region agent log - Server: Evaluate endpoint called
+    require('fs').appendFileSync('c:\\Users\\Burkay Çakar\\Desktop\\SoftwareProject\\.cursor\\debug.log', JSON.stringify({id:'log_' + Date.now() + '_server',timestamp:Date.now(),location:'server/index.js:112',message:'Server evaluate endpoint called',data:{speakingScore,mcqAnswersCount:Object.keys(mcqAnswers||{}).length,writingLength:writingAnswer?.length,transcriptLength:speakingTranscript?.length},sessionId:'debug-session',runId:'exam-submit-test',hypothesisId:'C'}) + '\n');
+    // #endregion
 
-  // 1. WRITING (Burası aynı kalabilir, kelime sayar)
-  let writingScore = 0;
-  let writingFeedback = "";
-  const wordCount = writingAnswer ? writingAnswer.trim().split(/\s+/).length : 0;
+    console.log("AI Service ile sınav değerlendirmesi başladı...");
 
-  if (wordCount < 10) {
-    writingScore = 5;
-    writingFeedback = "Too short. Please elaborate more.";
-  } else if (wordCount < 40) {
-    writingScore = 12;
-    writingFeedback = "Good effort, but try to use more complex sentences.";
-  } else {
-    writingScore = 20;
-    writingFeedback = "Excellent writing! Detailed and clear.";
-  }
+    try {
+      // AI Service'e istek gönder
+      const aiPayload = {
+        mcq_answers: Object.values(mcqAnswers || {}), // Array formatına çevir
+        writing_text: writingAnswer || "",
+        speaking_text: speakingTranscript || "",
+        speaking_score: speakingScore // Frontend'den hesaplanan speaking score
+      };
 
-  // 2. SPEAKING (ARTIK DAHA AKILLI)
-  // Frontend'den gelen skoru alıyoruz (0-20 arası)
-  let finalSpeakingScore = speakingScore || 0; 
-  let speakingFeedback = "";
+      // #region agent log - Server: AI service payload prepared
+      require('fs').appendFileSync('c:\\Users\\Burkay Çakar\\Desktop\\SoftwareProject\\.cursor\\debug.log', JSON.stringify({id:'log_' + Date.now() + '_server_payload',timestamp:Date.now(),location:'server/index.js:202',message:'AI service payload prepared',data:{aiPayloadKeys:Object.keys(aiPayload),speaking_score:aiPayload.speaking_score},sessionId:'debug-session',runId:'exam-submit-test',hypothesisId:'C'}) + '\n');
+      // #endregion
 
-  if (finalSpeakingScore === 0) {
-    speakingFeedback = "No speech detected or completely off-topic.";
-  } else if (finalSpeakingScore < 10) {
-    speakingFeedback = "Your pronunciation needs work. Some words were not recognized.";
-  } else if (finalSpeakingScore < 16) {
-    speakingFeedback = "Good pronunciation! You missed a few words but overall understandable.";
-  } else {
-    speakingFeedback = "Native-like pronunciation! Perfect match.";
-  }
+      // #region agent log - Server: AI service request sent
+      require('fs').appendFileSync('c:\\Users\\Burkay Çakar\\Desktop\\SoftwareProject\\.cursor\\debug.log', JSON.stringify({id:'log_' + Date.now() + '_server_ai_request',timestamp:Date.now(),location:'server/index.js:206',message:'AI service request sent',data:{url:'http://localhost:8001/score'},sessionId:'debug-session',runId:'exam-submit-test',hypothesisId:'A'}) + '\n');
+      // #endregion
 
-  res.json({
-    writing: { score: writingScore, feedback: writingFeedback },
-    speaking: { score: finalSpeakingScore, feedback: speakingFeedback }
+      const aiResponse = await axios.post('http://localhost:8001/score', aiPayload);
+
+      const aiResult = aiResponse.data;
+
+      // #region agent log - Server: AI service response received
+      require('fs').appendFileSync('c:\\Users\\Burkay Çakar\\Desktop\\SoftwareProject\\.cursor\\debug.log', JSON.stringify({id:'log_' + Date.now() + '_server_response',timestamp:Date.now(),location:'server/index.js:211',message:'AI service response received',data:{aiResultKeys:Object.keys(aiResult),overall_score:aiResult.overall_score,individual_scores:aiResult.individual_scores},sessionId:'debug-session',runId:'exam-submit-test',hypothesisId:'A'}) + '\n');
+      // #endregion
+
+      // Frontend formatına çevir - AI service'den gelen individual scores'u kullan
+      const finalResponse = {
+        writing: {
+          score: Math.round((aiResult.individual_scores?.writing_score || 0) / 5), // 0-100 -> 0-20 scale
+          feedback: aiResult.feedback
+        },
+        speaking: {
+          score: Math.round((aiResult.individual_scores?.speaking_score || 0) / 5), // 0-100 -> 0-20 scale
+          feedback: aiResult.feedback
+        }
+      };
+
+      // #region agent log - Hypothesis C: Final response prepared
+      require('fs').appendFileSync('c:\\Users\\Burkay Çakar\\Desktop\\SoftwareProject\\.cursor\\debug.log', JSON.stringify({id:'log_' + Date.now() + '_server_final',timestamp:Date.now(),location:'server/index.js:148',message:'Final response prepared',data:{finalWritingScore:finalResponse.writing.score,finalSpeakingScore:finalResponse.speaking.score},sessionId:'debug-session',runId:'initial',hypothesisId:'C'}) + '\n');
+      // #endregion
+
+      res.json(finalResponse);
+
+    } catch (error) {
+      console.error("AI Service hatası:", error.message);
+
+      // #region agent log - Server: AI service error, using fallback
+      require('fs').appendFileSync('c:\\Users\\Burkay Çakar\\Desktop\\SoftwareProject\\.cursor\\debug.log', JSON.stringify({id:'log_' + Date.now() + '_server_error',timestamp:Date.now(),location:'server/index.js:239',message:'AI service error, using fallback',data:{error:error.message,errorCode:error.code,speakingScore},sessionId:'debug-session',runId:'exam-submit-test',hypothesisId:'A'}) + '\n');
+      // #endregion
+
+      // Fallback: Eski mantıkla devam et
+      let writingScore = 0;
+      let writingFeedback = "";
+      const wordCount = writingAnswer ? writingAnswer.trim().split(/\s+/).length : 0;
+
+      if (wordCount < 10) {
+        writingScore = 5;
+        writingFeedback = "Too short. Please elaborate more.";
+      } else if (wordCount < 40) {
+        writingScore = 12;
+        writingFeedback = "Good effort, but try to use more complex sentences.";
+      } else {
+        writingScore = 20;
+        writingFeedback = "Excellent writing! Detailed and clear.";
+      }
+
+      let finalSpeakingScore = speakingScore || 0;
+      let speakingFeedback = "";
+
+      if (finalSpeakingScore === 0) {
+        speakingFeedback = "No speech detected or completely off-topic.";
+      } else if (finalSpeakingScore < 10) {
+        speakingFeedback = "Your pronunciation needs work. Some words were not recognized.";
+      } else if (finalSpeakingScore < 16) {
+        speakingFeedback = "Good pronunciation! You missed a few words but overall understandable.";
+      } else {
+        speakingFeedback = "Native-like pronunciation! Perfect match.";
+      }
+
+      res.json({
+        writing: { score: writingScore, feedback: writingFeedback },
+        speaking: { score: finalSpeakingScore, feedback: speakingFeedback }
+      });
+    }
   });
-});
