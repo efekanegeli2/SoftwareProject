@@ -4,8 +4,22 @@ import axios from 'axios';
 
 const API_URL = 'http://localhost:3000';
 
+// Axios interceptor for authentication
+axios.interceptors.request.use(
+  (config) => {
+    const { token } = JSON.parse(localStorage.getItem('auth') || '{}');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
 const AdminPanel = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, token } = useAuth();
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(null);

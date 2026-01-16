@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 
 function Exam() {
   const navigate = useNavigate();
+  const { user, token } = useAuth();
 
   // --- STATE YÖNETİMİ ---
   const [questions, setQuestions] = useState([]); 
@@ -23,15 +25,26 @@ function Exam() {
   const [showResult, setShowResult] = useState(false);
   const [scoreData, setScoreData] = useState({ mcq: 0, status: "" });
 
-  // --- AI'DAN SORULARI ÇEKME ---
+  // --- AUTHENTICATION KONTROLÜ VE SORU ÇEKME ---
   useEffect(() => {
+    if (!user || !token) {
+      console.log('DEBUG: User not authenticated, redirecting to login');
+      navigate('/login');
+      return;
+    }
+
+    // --- AI'DAN SORULARI ÇEKME ---
     const fetchExamFromAI = async () => {
     // Debug: Fetch exam from AI started
     console.log('DEBUG: Fetch exam from AI started');
 
       try {
         setLoading(true);
-        const response = await fetch('http://localhost:3000/api/exam/generate');
+        const response = await fetch('http://localhost:3000/exam/generate', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
 
     // Debug: AI response status
     console.log('DEBUG: AI response status', response.status, response.ok);
@@ -57,7 +70,7 @@ function Exam() {
       }
     };
     fetchExamFromAI();
-  }, []);
+  }, [user, token, navigate]);
 
   // --- SPEECH RECOGNITION (SESİ YAZIYA ÇEVİRME) ---
   const startRecording = () => {
@@ -236,9 +249,12 @@ function Exam() {
       console.log('DEBUG: Server evaluate request sent');
       // #endregion
 
-      const response = await fetch('http://localhost:3000/api/exam/evaluate', {
+      const response = await fetch('http://localhost:3000/exam/submit', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify(payload),
       });
 
