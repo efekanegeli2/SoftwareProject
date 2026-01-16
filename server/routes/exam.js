@@ -48,9 +48,14 @@ router.get('/generate', authenticate, requireRole('STUDENT'), async (req, res) =
     ];
 
     res.json({
-      mcqQuestions,
-      writingTopic,
-      speakingSentences
+      questions: mcqQuestions.map(q => ({
+        id: q.id,
+        text: q.question,
+        options: q.options,
+        correct: q.correctAnswer
+      })),
+      writingTopic: writingTopic.topic,
+      speakingSentences: speakingSentences
     });
   } catch (error) {
     console.error('Generate exam error:', error);
@@ -61,19 +66,26 @@ router.get('/generate', authenticate, requireRole('STUDENT'), async (req, res) =
 // Submit exam
 router.post('/submit', authenticate, requireRole('STUDENT'), async (req, res) => {
   try {
-    const { mcqAnswers, writingText, speakingText } = req.body;
+    // Handle both old and new payload formats
+    const { mcqAnswers, writingAnswer, writingText, speakingTranscript, speakingText, speakingScore } = req.body;
     const userId = req.user.id;
 
+    // Normalize payload format
+    const normalizedMcqAnswers = mcqAnswers ? Object.values(mcqAnswers) : [];
+    const normalizedWritingText = writingAnswer || writingText || '';
+    const normalizedSpeakingText = speakingTranscript || speakingText || '';
+
     // Check if payload is empty
-    const isEmpty = (!mcqAnswers || mcqAnswers.length === 0) && 
-                    (!writingText || writingText.trim() === '') && 
-                    (!speakingText || speakingText.trim() === '');
+    const isEmpty = (!normalizedMcqAnswers || normalizedMcqAnswers.length === 0) &&
+                    (!normalizedWritingText || normalizedWritingText.trim() === '') &&
+                    (!normalizedSpeakingText || normalizedSpeakingText.trim() === '');
 
     // Prepare payload for AI service
     const aiPayload = {
-      mcq_answers: mcqAnswers || [],
-      writing_text: writingText || '',
-      speaking_text: speakingText || ''
+      mcq_answers: normalizedMcqAnswers,
+      writing_text: normalizedWritingText,
+      speaking_text: normalizedSpeakingText,
+      speaking_score: speakingScore // Frontend-calculated speaking score
     };
 
     // Call AI service for scoring
@@ -105,10 +117,10 @@ router.post('/submit', authenticate, requireRole('STUDENT'), async (req, res) =>
       }
     });
 
-    // Save MCQ answers
-    if (mcqAnswers && mcqAnswers.length > 0) {
+    // Save MCQ answers (handle both object and array formats)
+    if (normalizedMcqAnswers && normalizedMcqAnswers.length > 0) {
       await prisma.answer.createMany({
-        data: mcqAnswers.map((answer, index) => ({
+        data: normalizedMcqAnswers.map((answer, index) => ({
           examId: exam.id,
           type: 'MCQ',
           questionText: `MCQ Question ${index + 1}`,
@@ -119,27 +131,27 @@ router.post('/submit', authenticate, requireRole('STUDENT'), async (req, res) =>
     }
 
     // Save writing answer
-    if (writingText && writingText.trim() !== '') {
+    if (normalizedWritingText && normalizedWritingText.trim() !== '') {
       await prisma.answer.create({
         data: {
           examId: exam.id,
           type: 'WRITING',
           questionText: 'Advantages of AI',
-          userResponse: writingText,
+          userResponse: normalizedWritingText,
           aiScore: null
         }
       });
     }
 
     // Save speaking answer
-    if (speakingText && speakingText.trim() !== '') {
+    if (normalizedSpeakingText && normalizedSpeakingText.trim() !== '') {
       await prisma.answer.create({
         data: {
           examId: exam.id,
           type: 'SPEAKING',
           questionText: 'Speaking Task',
-          userResponse: speakingText,
-          aiScore: null
+          userResponse: normalizedSpeakingText,
+          aiScore: speakingScore || null  // Store frontend-calculated speaking score
         }
       });
     }
