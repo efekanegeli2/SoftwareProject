@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { prisma } from './db.js'; // db.js bağlantısı
+import { prisma } from './db.js'; 
 import authRoutes from './routes/auth.js';
 import examRoutes from './routes/exam.js';
 import dashboardRoutes from './routes/dashboard.js';
@@ -12,56 +12,60 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
-// Rotalar
 app.use('/auth', authRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/exam', examRoutes);
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
-// --- GELİŞMİŞ AI SORU HAVUZU ---
-// Gerçek bir AI gibi davranması için soruları kategorize ettik ve zorlaştırdık.
+// --- GENİŞLETİLMİŞ SORU HAVUZU (EN AZ 20 SORU) ---
 const ADVANCED_QUESTION_BANK = [
-  // A1-A2 Seviyesi (Isınma)
+  // A1-A2
   { text: "I _____ strictly forbidden from smoking in this area.", options: ["am", "is", "be", "are"], correct: "am" },
-  { text: "She _____ usually _____ breakfast at 7 AM.", options: ["do / eat", "does / eat", "does / eats", "do / eats"], correct: "does / eat" },
   { text: "Where _____ you go last summer holiday?", options: ["did", "do", "were", "was"], correct: "did" },
+  { text: "She _____ usually _____ breakfast at 7 AM.", options: ["do / eat", "does / eat", "does / eats", "do / eats"], correct: "does / eat" },
+  { text: "Yesterday, I _____ to the cinema with my friends.", options: ["go", "gone", "went", "was"], correct: "went" },
+  { text: "This is the _____ book I have ever read.", options: ["good", "better", "best", "most good"], correct: "best" },
   
-  // B1-B2 Seviyesi (Orta)
+  // B1-B2
   { text: "If I _____ you, I would accept that offer immediately.", options: ["was", "am", "were", "be"], correct: "were" },
-  { text: "By the time we arrived, the film _____ already _____.", options: ["has / started", "had / started", "was / starting", "did / start"], correct: "had / started" },
   { text: "He is the man _____ car was stolen yesterday.", options: ["who", "which", "whose", "that"], correct: "whose" },
+  { text: "By the time we arrived, the film _____ already _____.", options: ["has / started", "had / started", "was / starting", "did / start"], correct: "had / started" },
   { text: "I look forward to _____ from you soon.", options: ["hear", "hearing", "heard", "be heard"], correct: "hearing" },
   { text: "Despite _____ tired, he continued working.", options: ["he was", "of being", "being", "to be"], correct: "being" },
-
-  // C1-C2 Seviyesi (İleri - Akademik)
+  { text: "You _____ better see a doctor if the pain persists.", options: ["would", "should", "had", "must"], correct: "had" },
+  
+  // C1-C2
   { text: "Not only _____ the deadline, but he also submitted a flawless report.", options: ["he met", "did he meet", "he did meet", "met he"], correct: "did he meet" },
-  { text: "Had I known about the risks, I _____ participated in the experiment.", options: ["would not have", "will not have", "would not", "had not"], correct: "would not have" },
   { text: "The government is considering _____ a new tax on luxury goods.", options: ["to impose", "imposing", "impose", "of imposing"], correct: "imposing" },
-  { text: "It is high time we _____ measures to protect the environment.", options: ["take", "took", "will take", "have taken"], correct: "took" },
   { text: "Scarcely had he entered the room _____ the phone rang.", options: ["when", "than", "after", "while"], correct: "when" },
+  { text: "It is high time we _____ measures to protect the environment.", options: ["take", "took", "will take", "have taken"], correct: "took" },
   { text: "This methodology is _____ to yield significant results.", options: ["bound", "likely", "probable", "possible"], correct: "bound" },
-  { text: "I'd rather you _____ make so much noise while I'm studying.", options: ["don't", "didn't", "won't", "not"], correct: "didn't" }
+  { text: "Had I known about the risks, I _____ participated.", options: ["would not have", "will not have", "would not", "had not"], correct: "would not have" },
+  { text: "I'd rather you _____ make so much noise.", options: ["don't", "didn't", "won't", "not"], correct: "didn't" },
+  { text: "Under no circumstances _____ allowed to enter.", options: ["are you", "you are", "do you", "you do"], correct: "are you" },
+  { text: "Hardly _____ the news when he burst into tears.", options: ["had he heard", "he had heard", "did he hear", "he heard"], correct: "had he heard" }
 ];
 
 const WRITING_TOPICS = [
   "Discuss the impact of Artificial Intelligence on future job markets.",
-  "Is climate change the greatest threat facing humanity? Why or why not?",
-  "Should education be completely free for everyone? Discuss the pros and cons.",
+  "Is climate change the greatest threat facing humanity?",
+  "Should education be completely free for everyone?",
   "The role of social media in shaping modern democracy.",
-  "Describe a significant technological advancement and its effects on society."
+  "Describe a significant technological advancement and its effects."
 ];
 
+// --- LISTENING (5 SORUYA ÇIKARILDI) ---
 const LISTENING_SCENARIOS = [
   {
-    topic: "The Future of Mars Colonization",
+    topic: "Mars Colonization",
     passage: "As humanity looks towards the stars, Mars has become the primary candidate for colonization. However, the challenges are immense. Radiation levels, lack of breathable atmosphere, and extreme cold make it a hostile environment. Scientists are proposing terraforming as a long-term solution, essentially engineering the planet to support human life.",
     questions: [
       { id: 'L1', text: "What is the primary candidate for colonization?", options: ["Moon", "Mars", "Venus", "Jupiter"], correct: "Mars" },
       { id: 'L2', text: "What is mentioned as a major challenge?", options: ["Aliens", "Radiation", "Heat", "Gravity"], correct: "Radiation" },
       { id: 'L3', text: "What long-term solution is proposed?", options: ["Terraforming", "Building Domes", "Underground Cities", "Space Stations"], correct: "Terraforming" },
       { id: 'L4', text: "Mars is described as a _____ environment.", options: ["Friendly", "Hostile", "Warm", "Wet"], correct: "Hostile" },
-      { id: 'L5', text: "The passage discusses engineering the planet to support...", options: ["Robot life", "Plant life", "Human life", "No life"], correct: "Human life" }
+      { id: 'L5', text: "Terraforming means engineering the planet to support...", options: ["Robot life", "Plant life", "Human life", "No life"], correct: "Human life" }
     ]
   },
   {
@@ -71,28 +75,28 @@ const LISTENING_SCENARIOS = [
       { id: 'L1', text: "When did the Internet start?", options: ["1980s", "1960s", "1990s", "2000s"], correct: "1960s" },
       { id: 'L2', text: "Who was it originally for?", options: ["Students", "Gamers", "Government researchers", "Businessmen"], correct: "Government researchers" },
       { id: 'L3', text: "Computers in the 60s were...", options: ["Small", "Mobile", "Large and immobile", "Wireless"], correct: "Large and immobile" },
-      { id: 'L4', text: "How was data shared physically?", options: ["USB Drives", "Magnetic tapes", "CDs", "Cloud"], correct: "Magnetic tapes" },
+      { id: 'L4', text: "How was data physically shared?", options: ["USB Drives", "Magnetic tapes", "CDs", "Cloud"], correct: "Magnetic tapes" },
       { id: 'L5', text: "To use data, one had to _____ to the site.", options: ["Email", "Call", "Travel", "Fax"], correct: "Travel" }
     ]
   }
 ];
 
-// --- API: SINAV OLUŞTUR ---
-app.get('/api/exam/generate', (req, res) => {
-  console.log("AI Generating Unique Exam...");
+// --- SPEAKING (3 CÜMLEYE ÇIKARILDI) ---
+const SPEAKING_SETS = [
+  ["Artificial Intelligence is transforming the world.", "Sustainability is key to our future.", "Critical thinking is an essential skill."],
+  ["Global warming requires urgent action.", "Education is the most powerful weapon.", "Technology brings people together."],
+  ["Learning a new language opens many doors.", "Healthy habits lead to a happier life.", "Creativity is intelligence having fun."]
+];
 
-  // 1. Soruları Karıştır ve Seç (Her test farklı olsun)
-  const shuffledQuestions = ADVANCED_QUESTION_BANK.sort(() => 0.5 - Math.random()).slice(0, 10);
+app.get('/api/exam/generate', (req, res) => {
+  console.log("AI Generating Unique Exam (15 MCQ, 5 Listening, 3 Speaking)...");
   
-  // 2. Rastgele Konular Seç
+  // 15 Soru Seç (MCQ)
+  const shuffledQuestions = ADVANCED_QUESTION_BANK.sort(() => 0.5 - Math.random()).slice(0, 15);
+  
   const randomTopic = WRITING_TOPICS[Math.floor(Math.random() * WRITING_TOPICS.length)];
   const randomListening = LISTENING_SCENARIOS[Math.floor(Math.random() * LISTENING_SCENARIOS.length)];
-
-  const speakingSets = [
-    ["Artificial Intelligence is transforming the world.", "Sustainability is key to our future.", "Critical thinking is an essential skill."],
-    ["Global warming requires urgent action.", "Education is the most powerful weapon.", "Technology brings people together."]
-  ];
-  const randomSpeaking = speakingSets[Math.floor(Math.random() * speakingSets.length)];
+  const randomSpeaking = SPEAKING_SETS[Math.floor(Math.random() * SPEAKING_SETS.length)];
 
   res.json({
     questions: shuffledQuestions.map((q, i) => ({ ...q, id: i + 1 })),
@@ -103,7 +107,6 @@ app.get('/api/exam/generate', (req, res) => {
   });
 });
 
-// --- CEFR HESAPLAMA FONKSİYONU ---
 function calculateCEFR(score) {
   if (score >= 90) return "C2 (Mastery)";
   if (score >= 75) return "C1 (Advanced)";
@@ -113,38 +116,38 @@ function calculateCEFR(score) {
   return "A1 (Beginner)";
 }
 
-// --- API: DEĞERLENDİR VE KAYDET ---
 app.post('/api/exam/evaluate', async (req, res) => {
   const { mcqAnswers, listeningAnswers, writingAnswer, speakingScore, userId, mcqScore } = req.body;
 
-  // 1. Writing Puanlama (Basit Logic)
-  let writingScore = 10;
+  // Puanlama Sistemi (Toplam 100)
+  // Writing: Max 15 Puan
+  let writingScore = 5;
   if (writingAnswer) {
     const len = writingAnswer.trim().split(/\s+/).length;
-    if (len > 50) writingScore = 20;
-    else if (len > 20) writingScore = 15;
+    if (len > 50) writingScore = 15;
+    else if (len > 20) writingScore = 10;
   }
 
-  // 2. Listening Puanlama
+  // Listening: 5 Soru * 4 Puan = 20 Puan
   let listeningScore = 0;
   if (listeningAnswers) {
-     listeningScore = Object.keys(listeningAnswers).length * 4; // 5 soru * 4 = 20 puan max
+     listeningScore = Object.keys(listeningAnswers).length * 4; 
      if(listeningScore > 20) listeningScore = 20;
   }
 
-  // 3. Toplam Puan ve CEFR
-  const finalMcqScore = mcqScore || 0; 
+  // Speaking: Max 20 Puan (Frontend'den geliyor)
   const finalSpeakingScore = speakingScore || 0;
-  const totalScore = finalMcqScore + writingScore + finalSpeakingScore + listeningScore;
   
-  const cefrLevel = calculateCEFR(totalScore); // PUANA GÖRE LEVEL BELİRLE
+  // Grammar: Max 45 Puan (Frontend'den 15 * 3 olarak gelmeli)
+  const finalMcqScore = mcqScore || 0;
 
-  // 4. Veritabanına Kayıt
+  const totalScore = finalMcqScore + writingScore + finalSpeakingScore + listeningScore;
+  const cefrLevel = calculateCEFR(totalScore);
+
   if (userId) {
     try {
       const uId = parseInt(userId);
       const userExists = await prisma.user.findUnique({ where: { id: uId } });
-
       if (userExists) {
         await prisma.examResult.create({
           data: {
@@ -154,28 +157,21 @@ app.post('/api/exam/evaluate', async (req, res) => {
             writingScore: writingScore,
             speakingScore: finalSpeakingScore,
             listeningScore: listeningScore,
-            level: cefrLevel, // ARTIK LEVEL KAYDEDİYORUZ
+            level: cefrLevel,
             date: new Date()
           }
         });
-        console.log(`✅ Exam Saved! Score: ${totalScore}, Level: ${cefrLevel}`);
+        console.log(`✅ Saved! Score: ${totalScore}, Level: ${cefrLevel}`);
       }
-    } catch (error) {
-      console.log("❌ DB Error:", error.message);
-    }
+    } catch (e) { console.log("DB Error:", e.message); }
   }
 
   res.json({
     totalScore,
     cefrLevel,
-    details: {
-      grammar: finalMcqScore,
-      listening: listeningScore,
-      writing: { score: writingScore },
-      speaking: { score: finalSpeakingScore }
-    }
+    details: { grammar: finalMcqScore, listening: listeningScore, writing: {score: writingScore}, speaking: {score: finalSpeakingScore} }
   });
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 AI Server running on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));

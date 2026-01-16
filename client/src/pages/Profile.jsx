@@ -27,14 +27,13 @@ function Profile() {
   if (loading) return <div className="p-10 text-center text-white">Loading Profile...</div>;
   if (error) return <div className="p-10 text-center text-red-500">{error}</div>;
 
-  // Son sınavdaki CEFR seviyesini bul
   const currentLevel = profileData.history.length > 0 ? profileData.history[0].level : "N/A";
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#111827', color: 'white', padding: '40px 20px' }}>
       <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
         
-        {/* Header & CEFR Badge */}
+        {/* Header */}
         <div style={{ backgroundColor: '#1f2937', padding: '40px', borderRadius: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', border: '1px solid #374151' }}>
           <div>
             <h1 style={{ fontSize: '2.2rem', margin: 0, fontWeight: 'bold' }}>Welcome, {profileData.user.name || "Student"} 👋</h1>
@@ -116,9 +115,9 @@ function StatCard({ title, value, color }) {
 
 function getLevelColor(level) {
   if (!level) return 'white';
-  if (level.includes('C2') || level.includes('C1')) return '#A78BFA'; // Mor (Advanced)
-  if (level.includes('B2') || level.includes('B1')) return '#34D399'; // Yeşil (Intermediate)
-  return '#60A5FA'; // Mavi (Basic)
+  if (level.includes('C2') || level.includes('C1')) return '#A78BFA'; 
+  if (level.includes('B2') || level.includes('B1')) return '#34D399'; 
+  return '#60A5FA'; 
 }
 
 export default Profile;
