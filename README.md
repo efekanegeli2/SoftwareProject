@@ -11,49 +11,36 @@ A production-ready microservices-based English proficiency assessment system wit
 ## Setup
 
 ### Prerequisites
-- Node.js (v18 or higher)
-- Python (v3.8 or higher)
-- npm or yarn
+- Node.js (v16 or higher)
+- npm
+
+> Python / AI service is **optional**. This project works fully without it.
 
 ### Installation Steps
 
-1. **Install all dependencies:**
+1. **Install dependencies (server + client):**
 ```bash
 npm run install:all
 ```
-
-2. **Set up environment variables:**
-   - Navigate to the `server` directory
-   - Create a `.env` file with the following content:
-   ```
-   DATABASE_URL="file:./prisma/dev.db"
-   JWT_SECRET="your-super-secret-jwt-key-change-in-production"
-   AI_SERVICE_URL="http://localhost:8001"
-   PORT=3000
-   ```
-
-3. **Initialize the database:**
-```bash
-cd server
-npx prisma migrate dev --name init
-npx prisma generate
-cd ..
-```
-
-4. **Start all services:**
+2. **Start (server + client):**
 ```bash
 npm run dev
 ```
 
 This will start:
 - Server on http://localhost:3000
-- AI Service on http://localhost:8001
 - Client on http://localhost:5173
+
+### Optional: AI Service
+If you also want to run the Python service:
+```bash
+npm run install:ai
+npm run dev:all
+```
 
 ## Services
 
 - **Server**: http://localhost:3000
-- **AI Service**: http://localhost:8001
 - **Client**: http://localhost:5173
 
 ## Usage
@@ -63,6 +50,11 @@ The login page provides quick demo buttons for each role:
 - **Student**: Click "Student" button to auto-login as a student
 - **Teacher**: Click "Teacher" button to auto-login as a teacher
 - **Admin**: Click "Admin" button to auto-login as an admin
+
+Demo credentials:
+- **Student**: `student@demo.com` / `demo123`
+- **Teacher**: `teacher@demo.com` / `demo123`
+- **Admin**: `admin@demo.com` / `demo123`
 
 ### Manual Registration/Login
 You can also register new users manually:
@@ -74,8 +66,9 @@ You can also register new users manually:
 
 ### Student Panel
 - Take English proficiency assessment
-- 20 Multiple Choice Questions
-- Writing task (essay on "Advantages of AI")
+- 15 Grammar/Vocabulary multiple-choice questions
+- Listening passage + 5 questions
+- Writing task (topic changes)
 - Speaking task (mock recording)
 - View results with CEFR level and feedback
 
@@ -96,20 +89,19 @@ You can also register new users manually:
 - `POST /auth/login` - Login user
 
 ### Exam
-- `GET /exam/generate` - Generate exam content (Student only)
-- `POST /exam/submit` - Submit exam answers (Student only)
+- `GET /api/exam/generate` - Generate exam content (Student only)
+- `POST /api/exam/evaluate` - Submit answers + get score (Student only)
 
 ### Dashboard
-- `GET /dashboard/teacher` - Get all students (Teacher/Admin)
-- `GET /dashboard/teacher/student/:id` - Get student details (Teacher/Admin)
-- `GET /dashboard/admin` - Get system overview (Admin only)
-- `DELETE /dashboard/admin/user/:id` - Delete user (Admin only)
+- `GET /api/dashboard/profile` - Student profile + history (Student)
+- `GET /api/dashboard/teacher` - Get all students (Teacher/Admin)
+- `GET /api/dashboard/teacher/student/:id` - Get student details (Teacher/Admin)
+- `GET /api/dashboard/admin` - Get system overview (Admin only)
+- `DELETE /api/dashboard/admin/user/:id` - Delete user (Admin only)
 
 ## Architecture Notes
 
-- **Microservices**: Server and AI Service communicate via HTTP
-- **Database**: SQLite with Prisma ORM
-- **Authentication**: JWT-based authentication
-- **CORS**: Enabled for all origins (configure for production)
-- **Scoring**: AI Service calculates scores with weighted components (MCQ 40%, Writing 35%, Speaking 25%)
+- **Storage (no DB):** The server stores users + exam results in `server/data/store.json`.
+- **Authentication:** JWT-based authentication.
+- **CORS:** Enabled for all origins (configure for production).
 # SoftwareProject

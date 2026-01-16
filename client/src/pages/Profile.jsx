@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext.jsx';
+
+const API_URL = import.meta?.env?.VITE_API_URL || 'http://localhost:3000';
 
 function Profile() {
   const navigate = useNavigate();
+  const { logout } = useAuth();
   const [profileData, setProfileData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -13,13 +17,24 @@ function Profile() {
 
   const fetchProfile = async () => {
     try {
-      const res = await fetch('http://localhost:3000/api/dashboard/profile');
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/dashboard/profile`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+
+      // If user is not logged in / token expired, redirect to login.
+      if (res.status === 401 || res.status === 403) {
+        logout();
+        navigate('/login');
+        return;
+      }
+
       if (!res.ok) throw new Error('Failed to fetch data');
       const data = await res.json();
       setProfileData(data);
       setLoading(false);
     } catch (err) {
-      setError("Error loading profile. Is the server running?");
+      setError("Profil yüklenemedi. (Backend kapalı olabilir ya da giriş yapılmamış olabilir.)");
       setLoading(false);
     }
   };
@@ -45,6 +60,21 @@ function Profile() {
               {currentLevel}
             </div>
           </div>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <button
+            onClick={() => navigate('/dashboard')}
+            style={{ padding: '10px 16px', backgroundColor: '#374151', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold' }}
+          >
+            ⬅️ Dashboard
+          </button>
+          <button
+            onClick={logout}
+            style={{ padding: '10px 16px', backgroundColor: '#111827', color: 'white', border: '1px solid #374151', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold' }}
+          >
+            Çıkış
+          </button>
         </div>
 
         {/* Action Button */}

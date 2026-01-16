@@ -1,93 +1,55 @@
-import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext.jsx';
 
 function Dashboard() {
   const navigate = useNavigate();
-  const [userName, setUserName] = useState('');
-
-  useEffect(() => {
-    // Giriş yapılmamışsa at
-    const token = localStorage.getItem('token');
-    if (!token) navigate('/');
-    
-    // Kullanıcı adını (mailini) al
-    // (Gerçek projede backend'den ad soyad çekeriz, şimdilik maili gösterelim)
-    // Kayıt olurken localStorage'a email kaydetmediysek boş kalabilir, sorun yok.
-    setUserName('Öğrenci'); 
-  }, [navigate]);
+  const { user, logout } = useAuth();
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#f3f4f6' }}>
-      
-      {/* --- NAVBAR --- */}
-      <nav style={{ 
-        backgroundColor: '#fff', 
-        padding: '1rem 2rem', 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center', 
-        boxShadow: '0 2px 4px rgba(0,0,0,0.1)' 
-      }}>
-        <h2 style={{ color: '#4F46E5', margin: 0 }}>English Assessment</h2>
-        
-        {/* Sağ Üst Profil Butonu */}
-        <div 
-          onClick={() => navigate('/profile')} 
-          style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: '10px', 
-            cursor: 'pointer', 
-            padding: '8px 15px', 
-            borderRadius: '20px', 
-            backgroundColor: '#e0e7ff',
-            color: '#3730a3',
-            fontWeight: 'bold'
-          }}
-        >
-          <span>👤 Profilim</span>
+    <div className="min-h-screen bg-gray-50">
+      {/* Navbar */}
+      <nav className="bg-white px-6 py-4 flex justify-between items-center shadow-sm">
+        <h2 className="text-indigo-600 font-bold text-lg">English Assessment</h2>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-gray-600 hidden sm:block">{user?.email}</span>
+          <button
+            onClick={() => navigate('/profile')}
+            className="px-4 py-2 rounded-full bg-indigo-50 text-indigo-700 font-semibold hover:bg-indigo-100"
+          >
+            👤 Profil
+          </button>
+          <button
+            onClick={logout}
+            className="px-4 py-2 rounded-full bg-gray-100 text-gray-700 font-semibold hover:bg-gray-200"
+          >
+            Çıkış
+          </button>
         </div>
       </nav>
 
-      {/* --- ANA İÇERİK --- */}
-      <div style={{ 
-        display: 'flex', 
-        flexDirection: 'column', 
-        alignItems: 'center', 
-        justifyContent: 'center', 
-        height: '80vh',
-        textAlign: 'center',
-        padding: '20px'
-      }}>
-        <h1 style={{ fontSize: '2.5rem', marginBottom: '1rem', color: '#1f2937' }}>
-          Hazır mısın?
-        </h1>
-        <p style={{ fontSize: '1.2rem', color: '#6b7280', marginBottom: '3rem', maxWidth: '600px' }}>
-          İngilizce seviyeni ölçmek için yapay zeka destekli sınavımıza katıl. 
-          Okuma, yazma ve çoktan seçmeli sorular seni bekliyor.
+      {/* Hero */}
+      <div className="max-w-4xl mx-auto px-6 py-16 text-center">
+        <h1 className="text-4xl font-extrabold text-gray-900 mb-4">Hazır mısın?</h1>
+        <p className="text-gray-600 text-lg mb-10">
+          İngilizce seviyeni ölçmek için yapay zeka destekli sınavımıza katıl.
+          Grammar, Writing, Speaking ve Listening bölümleri seni bekliyor.
         </p>
 
-        <button 
-          onClick={() => navigate('/exam')}
-          style={{ 
-            padding: '20px 40px', 
-            fontSize: '1.5rem', 
-            fontWeight: 'bold', 
-            color: 'white', 
-            backgroundColor: '#4F46E5', 
-            border: 'none', 
-            borderRadius: '12px', 
-            cursor: 'pointer',
-            boxShadow: '0 10px 15px -3px rgba(79, 70, 229, 0.4)',
-            transition: 'transform 0.2s'
-          }}
-          onMouseOver={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
-          onMouseOut={(e) => e.currentTarget.style.transform = 'scale(1)'}
-        >
-          🚀 Sınavı Başlat
-        </button>
+        <div className="flex flex-col sm:flex-row gap-4 justify-center">
+          <button
+            onClick={() => navigate('/exam')}
+            className="px-8 py-4 rounded-xl bg-indigo-600 text-white font-bold text-lg hover:bg-indigo-700 shadow"
+          >
+            🚀 Sınavı Başlat
+          </button>
+          <button
+            onClick={() => navigate('/profile')}
+            className="px-8 py-4 rounded-xl bg-white border border-gray-200 text-gray-800 font-bold text-lg hover:bg-gray-50"
+          >
+            📊 Sonuçlarım
+          </button>
+        </div>
       </div>
-
     </div>
   );
 }

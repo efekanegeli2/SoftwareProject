@@ -3,7 +3,8 @@ import axios from 'axios';
 
 const AuthContext = createContext();
 
-const API_URL = 'http://localhost:3000';
+// NOTE: You can override this in production with VITE_API_URL
+const API_URL = import.meta?.env?.VITE_API_URL || 'http://localhost:3000';
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -25,14 +26,28 @@ export const AuthProvider = ({ children }) => {
     try {
       let response;
       
-      // If role is provided (demo mode), register first
+      // Demo mode: prefer login (server seeds demo users). If login fails for any reason,
+      // fall back to register.
       if (role) {
-        const password = 'demo123';
-        response = await axios.post(`${API_URL}/auth/register`, {
-          email: `${role.toLowerCase()}@demo.com`,
-          password,
-          role
-        });
+        const demoEmail = `${role.toLowerCase()}@demo.com`;
+        const demoPassword = 'demo123';
+        try {
+          response = await axios.post(`${API_URL}/auth/login`, {
+            email: demoEmail,
+            password: demoPassword
+          });
+        } catch (e) {
+          // Fallback: register and then login
+          await axios.post(`${API_URL}/auth/register`, {
+            email: demoEmail,
+            password: demoPassword,
+            role
+          });
+          response = await axios.post(`${API_URL}/auth/login`, {
+            email: demoEmail,
+            password: demoPassword
+          });
+        }
       } else {
         // Normal login
         response = await axios.post(`${API_URL}/auth/login`, {

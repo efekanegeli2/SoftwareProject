@@ -1,0 +1,40 @@
+{
+  "meta": {
+    "nextUserId": 4,
+    "nextExamId": 2
+  },
+  "users": [
+    {
+      "id": 1,
+      "email": "student@demo.com",
+      "role": "STUDENT",
+      "password": "$2a$10$gZECKtHaiaToedcv7VdTUOrlhKXa9xdSuV9lfAtQMzBVzkCLgaIkW"
+    },
+    {
+      "id": 2,
+      "email": "teacher@demo.com",
+      "role": "TEACHER",
+      "password": "$2a$10$gZECKtHaiaToedcv7VdTUOrlhKXa9xdSuV9lfAtQMzBVzkCLgaIkW"
+    },
+    {
+      "id": 3,
+      "email": "admin@demo.com",
+      "role": "ADMIN",
+      "password": "$2a$10$gZECKtHaiaToedcv7VdTUOrlhKXa9xdSuV9lfAtQMzBVzkCLgaIkW"
+    }
+  ],
+  "examResults": [
+    {
+      "id": 1,
+      "userId": 1,
+      "date": "2026-01-16T16:40:21.292Z",
+      "score": 0,
+      "grammarScore": 0,
+      "writingScore": 0,
+      "speakingScore": 0,
+      "listeningScore": 0,
+      "level": "A1 (Beginner)"
+    }
+  ],
+  "activeExams": {}
+}

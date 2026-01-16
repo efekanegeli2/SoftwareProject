@@ -1,8 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext.jsx';
+
+const API_URL = import.meta?.env?.VITE_API_URL || 'http://localhost:3000';
 
 function Exam() {
   const navigate = useNavigate();
+  const { logout } = useAuth();
 
   // --- STATE ---
   const [questions, setQuestions] = useState([]); 
@@ -31,7 +35,18 @@ function Exam() {
     const fetchExam = async () => {
       try {
         setLoading(true);
-        const res = await fetch('http://localhost:3000/api/exam/generate');
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_URL}/api/exam/generate`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+
+        // Not logged in / token expired
+        if (res.status === 401 || res.status === 403) {
+          logout();
+          navigate('/login');
+          return;
+        }
+
         if (!res.ok) throw new Error('Server hatası');
         const data = await res.json();
 
@@ -42,7 +57,7 @@ function Exam() {
         setSpeakingSentences(data.speakingSentences || []);
         setLoading(false);
       } catch (err) {
-        setError("Exam loading failed. Server might be offline.");
+        setError("Sınav yüklenemedi. Backend çalışmıyor olabilir ya da giriş yapılmamış olabilir.");
         setLoading(false);
       }
     };
@@ -108,21 +123,29 @@ function Exam() {
     const spkScore = calculateSpeakingScore(transcript, speakingSentences);
 
     const payload = {
-      userId: 1, 
       mcqAnswers,
       listeningAnswers,
       writingAnswer,
       speakingTranscript: transcript,
-      speakingScore: spkScore,
-      mcqScore: mcqScore 
+      speakingScore: spkScore
     };
 
     try {
-      const res = await fetch('http://localhost:3000/api/exam/evaluate', {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/exam/evaluate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
         body: JSON.stringify(payload),
       });
+
+      if (res.status === 401 || res.status === 403) {
+        logout();
+        navigate('/login');
+        return;
+      }
 
       if (!res.ok) throw new Error('Evaluation failed');
       const data = await res.json();
@@ -139,7 +162,7 @@ function Exam() {
 
     } catch (err) {
       console.error(err);
-      alert("Submission Error! Check console for details.");
+      alert("Gönderim başarısız. Backend açık mı ve giriş yaptın mı kontrol et.");
     }
   };
 
