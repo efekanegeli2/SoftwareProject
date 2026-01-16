@@ -454,3 +454,85 @@ export async function logCheatingEvent(userId, type, details = null) {
     }
   });
 }
+
+// ------------------------------
+// Teacher content management
+// ------------------------------
+export async function listMcqQuestions({ take = 50, skip = 0 } = {}) {
+  const t = Math.max(1, Math.min(200, Number(take) || 50));
+  const s = Math.max(0, Number(skip) || 0);
+
+  const rows = await prisma.mcqQuestion.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: t,
+    skip: s
+  });
+
+  return rows.map((q) => ({
+    id: q.id,
+    text: q.text,
+    options: fromJsonText(q.options, []),
+    correct: q.correct,
+    difficulty: q.difficulty || null,
+    createdAt: q.createdAt.toISOString()
+  }));
+}
+
+export async function createMcqQuestion({ text, options, correct, difficulty } = {}) {
+  const t = String(text || '').trim();
+  const opts = Array.isArray(options) ? options.map((o) => String(o).trim()).filter(Boolean) : [];
+  const c = String(correct || '').trim();
+  const diff = difficulty === undefined || difficulty === null || String(difficulty).trim() === '' ? null : String(difficulty).trim();
+
+  if (!t) {
+    const err = new Error('text is required');
+    err.code = 'VALIDATION';
+    throw err;
+  }
+  if (opts.length < 2) {
+    const err = new Error('options must have at least 2 items');
+    err.code = 'VALIDATION';
+    throw err;
+  }
+  if (!c || !opts.includes(c)) {
+    const err = new Error('correct must match one of the options');
+    err.code = 'VALIDATION';
+    throw err;
+  }
+
+  const created = await prisma.mcqQuestion.create({
+    data: {
+      text: t,
+      options: toJsonText(opts),
+      correct: c,
+      difficulty: diff
+    }
+  });
+
+  return {
+    id: created.id,
+    text: created.text,
+    options: opts,
+    correct: created.correct,
+    difficulty: created.difficulty || null,
+    createdAt: created.createdAt.toISOString()
+  };
+}
+
+export async function deleteMcqQuestion(id) {
+  const num = Number(id);
+  if (!Number.isFinite(num)) {
+    const err = new Error('Invalid id');
+    err.code = 'VALIDATION';
+    throw err;
+  }
+
+  try {
+    await prisma.mcqQuestion.delete({ where: { id: num } });
+    return true;
+  } catch (e) {
+    // Record not found
+    if (e?.code === 'P2025') return false;
+    throw e;
+  }
+}

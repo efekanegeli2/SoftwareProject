@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 
 const DEMO_PASSWORD = 'demo123';
@@ -88,6 +88,13 @@ export default function Login() {
             {loading ? 'Giriş yapılıyor...' : 'Giriş Yap'}
           </button>
         </form>
+
+        <div className="mt-4 text-sm text-gray-600 text-center">
+          Hesabın yok mu?{' '}
+          <Link className="text-indigo-700 font-semibold hover:underline" to="/signup">
+            Kayıt ol
+          </Link>
+        </div>
 
         <div className="my-6 border-t border-gray-200" />
 

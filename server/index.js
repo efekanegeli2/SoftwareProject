@@ -18,7 +18,10 @@ import {
   generateExamForUser,
   getActiveExam,
   clearActiveExam,
-  logCheatingEvent
+  logCheatingEvent,
+  listMcqQuestions,
+  createMcqQuestion,
+  deleteMcqQuestion
 } from './store.js';
 
 const app = express();
@@ -90,6 +93,48 @@ app.post('/auth/login', async (req, res) => {
 
 // --- HEALTH ---
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
+
+// --- QUESTION BANK MANAGEMENT (TEACHER / ADMIN) ---
+app.get('/api/questions/mcq', authenticate, requireRole('TEACHER', 'ADMIN'), async (req, res) => {
+  try {
+    const take = req.query?.take;
+    const skip = req.query?.skip;
+    const rows = await listMcqQuestions({ take, skip });
+    res.json(rows);
+  } catch (e) {
+    console.error('List MCQ error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/questions/mcq', authenticate, requireRole('TEACHER', 'ADMIN'), async (req, res) => {
+  try {
+    const { text, options, correct, difficulty } = req.body || {};
+    const created = await createMcqQuestion({ text, options, correct, difficulty });
+    res.status(201).json(created);
+  } catch (e) {
+    if (e?.code === 'VALIDATION') {
+      return res.status(400).json({ error: e.message });
+    }
+    console.error('Create MCQ error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.delete('/api/questions/mcq/:id', authenticate, requireRole('TEACHER', 'ADMIN'), async (req, res) => {
+  try {
+    const ok = await deleteMcqQuestion(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'Question not found' });
+    return res.json({ ok: true });
+  } catch (e) {
+    if (e?.code === 'VALIDATION') {
+      return res.status(400).json({ error: e.message });
+    }
+    console.error('Delete MCQ error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 
 // --- QUESTION BANKS ---
 const ADVANCED_QUESTION_BANK = [
