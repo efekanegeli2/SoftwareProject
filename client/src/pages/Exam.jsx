@@ -1,278 +1,259 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 function Exam() {
   const navigate = useNavigate();
 
-  // --- STATE YÖNETİMİ ---
+  // --- STATE ---
   const [questions, setQuestions] = useState([]); 
+  const [listeningPassage, setListeningPassage] = useState("");
+  const [listeningQuestions, setListeningQuestions] = useState([]);
   const [writingTopic, setWritingTopic] = useState("");
   const [speakingSentences, setSpeakingSentences] = useState([]);
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Cevaplar
   const [mcqAnswers, setMcqAnswers] = useState({});
+  const [listeningAnswers, setListeningAnswers] = useState({});
   const [writingAnswer, setWritingAnswer] = useState("");
   
-  // GELİŞMİŞ SES STATE'LERİ
+  // Speaking
   const [isRecording, setIsRecording] = useState(false);
-  const [transcript, setTranscript] = useState(""); // Kullanıcının söylediği yazı
+  const [transcript, setTranscript] = useState("");
   const [recognitionInstance, setRecognitionInstance] = useState(null);
   
   const [showResult, setShowResult] = useState(false);
-  const [scoreData, setScoreData] = useState({ mcq: 0, status: "" });
+  const [scoreData, setScoreData] = useState({});
 
-  // --- AI'DAN SORULARI ÇEKME ---
+  // --- VERİ ÇEKME ---
   useEffect(() => {
-    const fetchExamFromAI = async () => {
+    const fetchExam = async () => {
       try {
         setLoading(true);
-        const response = await fetch('http://localhost:3000/api/exam/generate');
-        if (!response.ok) throw new Error('AI Servisine ulaşılamadı!');
-        const data = await response.json();
+        const res = await fetch('http://localhost:3000/api/exam/generate');
+        if (!res.ok) throw new Error('Server hatası');
+        const data = await res.json();
 
-        setQuestions(data.questions || []); 
-        setWritingTopic(data.writingTopic || "Describe a memorable day.");
-        setSpeakingSentences(data.speakingSentences || ["Hello world.", "This is a test."]);
+        setQuestions(data.questions || []);
+        setListeningPassage(data.listeningPassage || "");
+        setListeningQuestions(data.listeningQuestions || []);
+        setWritingTopic(data.writingTopic || "");
+        setSpeakingSentences(data.speakingSentences || []);
         setLoading(false);
       } catch (err) {
-        console.error("Hata:", err);
-        setError("Yapay zeka servisine ulaşılamıyor.");
+        setError("Exam loading failed. Server might be offline.");
         setLoading(false);
       }
     };
-    fetchExamFromAI();
+    fetchExam();
   }, []);
 
-  // --- SPEECH RECOGNITION (SESİ YAZIYA ÇEVİRME) ---
+  // --- PLAY AUDIO ---
+  const playAudio = () => {
+    if (!listeningPassage) return;
+    window.speechSynthesis.cancel();
+    
+    const utterance = new SpeechSynthesisUtterance(listeningPassage);
+    utterance.lang = 'en-US'; 
+    utterance.rate = 0.9; 
+    window.speechSynthesis.speak(utterance);
+  };
+
+  // --- SPEAKING SCORE ---
+  const calculateSpeakingScore = (spokenText, targetSentences) => {
+    if (!spokenText) return 0;
+    const clean = (t) => t.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "").trim();
+    const spoken = clean(spokenText).split(" ");
+    const target = clean(targetSentences.join(" ")).split(" ");
+    
+    let match = 0;
+    spoken.forEach(w => { if(target.includes(w)) match++; });
+    let score = Math.floor((match / target.length) * 20);
+    return score > 20 ? 20 : score;
+  };
+
+  // --- SES TANIMA ---
   const startRecording = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return alert("Please use Google Chrome for speech recognition.");
     
-    if (!SpeechRecognition) {
-      alert("Tarayıcın ses tanıma özelliğini desteklemiyor. Lütfen Google Chrome kullan.");
-      return;
-    }
-
     const recognition = new SpeechRecognition();
-    recognition.lang = 'en-US'; // İngilizce dinle
-    recognition.continuous = true; // Sürekli dinle
-    recognition.interimResults = true; // Anlık sonuçları göster
+    recognition.lang = 'en-US';
+    recognition.continuous = true;
+    recognition.interimResults = true;
 
-    recognition.onstart = () => {
-      setIsRecording(true);
-      setTranscript(""); // Kayıt başlayınca eskiyi sil
+    recognition.onstart = () => { setIsRecording(true); setTranscript(""); };
+    recognition.onresult = (e) => {
+      let t = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) t += e.results[i][0].transcript;
+      setTranscript(t);
     };
-
-    recognition.onresult = (event) => {
-      let currentTranscript = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        currentTranscript += event.results[i][0].transcript;
-      }
-      setTranscript(prev => currentTranscript); 
-    };
-
-    recognition.onerror = (event) => {
-      console.error("Ses tanıma hatası:", event.error);
-      setIsRecording(false);
-    };
-
-    recognition.onend = () => {
-      setIsRecording(false);
-    };
-
+    recognition.onend = () => setIsRecording(false);
     recognition.start();
     setRecognitionInstance(recognition);
   };
 
   const stopRecording = () => {
-    if (recognitionInstance) {
-      recognitionInstance.stop();
-      setIsRecording(false);
-    }
+    if (recognitionInstance) recognitionInstance.stop();
   };
 
-  // --- AKILLI PUAN HESAPLAMA (NOKTALAMA İŞARETLERİNİ YOK SAYAR) ---
-  const calculateSpeakingScore = (spokenText, targetSentences) => {
-    if (!spokenText) return 0;
-    
-    // 1. Temizlik Fonksiyonu (Nokta, virgül, ünlem hepsini siler, küçültür)
-    const cleanText = (text) => {
-      return text
-        .toLowerCase()
-        .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "") // Noktalama işaretlerini sil
-        .replace(/\s{2,}/g, " ") // Çift boşlukları teke indir
-        .trim();
-    };
-
-    // 2. Senin dediğin metni temizle
-    const spokenClean = cleanText(spokenText);
-    const spokenWords = spokenClean.split(" ");
-
-    // 3. Hedef cümleleri birleştir ve temizle
-    const targetClean = cleanText(targetSentences.join(" "));
-    const targetWords = targetClean.split(" ");
-    
-    // Konsola basalım ki neyi karşılaştırdığını gör (F12 Console'da çıkar)
-    console.log("Senin Dediğin (Temiz):", spokenWords);
-    console.log("Beklenen (Temiz):", targetWords);
-
-    // 4. Eşleşme Sayısı (Basit Kelime Avı)
-    let matchCount = 0;
-    
-    // Hedef kelimelerin kopyasını al ki eşleşeni listeden düşelim (aynı kelimeyi 2 kere saymasın)
-    let targetWordsCopy = [...targetWords];
-
-    spokenWords.forEach(word => {
-      const index = targetWordsCopy.indexOf(word);
-      if (index > -1) {
-        matchCount++;
-        targetWordsCopy.splice(index, 1); // Eşleşen kelimeyi havuzdan çıkar
-      }
-    });
-
-    // 5. Yüzdelik Hesap (Max 20 Puan)
-    let accuracyRate = matchCount / targetWords.length;
-    
-    // Puanı hesapla (0 ile 20 arası)
-    let score = Math.floor(accuracyRate * 20);
-
-    // Bonus: Eğer %80 üzeri tutturduysa direkt 20 ver (Motivasyon)
-    if (accuracyRate > 0.8) score = 20;
-    
-    return score;
-  };
-
-  // --- GÖNDERME FONKSİYONU ---
-  const handleMcqChange = (questionId, option) => {
-    setMcqAnswers(prev => ({ ...prev, [questionId]: option }));
-  };
-
+  // --- SUBMIT EXAM ---
   const handleSubmit = async () => {
-    console.log("Sınav gönderiliyor...");
+    let mcqScore = 0;
+    questions.forEach(q => { if (mcqAnswers[q.id] === q.correct) mcqScore += 4; });
 
-    // 1. MCQ Puanı
-    let calculatedMcqScore = 0;
-    questions.forEach(q => {
-      if (mcqAnswers[q.id] === q.correct) calculatedMcqScore += 3; 
-    });
-
-    // 2. Speaking Puanı (Frontend'de AKILLI hesapla)
-    const realSpeakingScore = calculateSpeakingScore(transcript, speakingSentences);
+    const spkScore = calculateSpeakingScore(transcript, speakingSentences);
 
     const payload = {
+      userId: 1, 
       mcqAnswers,
+      listeningAnswers,
       writingAnswer,
-      speakingTranscript: transcript, 
-      speakingScore: realSpeakingScore 
+      speakingTranscript: transcript,
+      speakingScore: spkScore,
+      mcqScore: mcqScore 
     };
 
     try {
-      const response = await fetch('http://localhost:3000/api/exam/evaluate', {
+      const res = await fetch('http://localhost:3000/api/exam/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
-      if (!response.ok) throw new Error('Değerlendirme hatası');
-      const aiResult = await response.json();
+      if (!res.ok) throw new Error('Evaluation failed');
+      const data = await res.json();
 
       setScoreData({
-        mcq: calculatedMcqScore,
-        writing: aiResult.writing,
-        speaking: aiResult.speaking,
-        total: calculatedMcqScore + aiResult.writing.score + aiResult.speaking.score,
-        status: "Değerlendirildi"
+        total: data.totalScore,
+        level: data.cefrLevel,
+        mcq: data.details?.grammar || mcqScore,
+        listening: data.details?.listening || 0,
+        writing: data.details?.writing?.score || 0,
+        speaking: data.details?.speaking?.score || spkScore
       });
       setShowResult(true);
-    } catch (error) {
-      console.error("Hata:", error);
-      alert("Hata oluştu.");
+
+    } catch (err) {
+      console.error(err);
+      alert("Submission Error! Check console for details.");
     }
   };
 
-  // --- RENDER ---
-  if (loading) return <div style={{height:'100vh', display:'flex', justifyContent:'center', alignItems:'center', color:'white', backgroundColor:'#111827'}}>Yükleniyor...</div>;
-  if (error) return <div style={{height:'100vh', display:'flex', justifyContent:'center', alignItems:'center', color:'white', backgroundColor:'#111827'}}>{error}</div>;
+  if (loading) return <div style={{padding:'50px', textAlign:'center', color:'#666'}}>Loading Exam...</div>;
+  if (error) return <div style={{padding:'50px', textAlign:'center', color:'red'}}>{error}</div>;
 
+  // --- SONUÇ EKRANI ---
   if (showResult) {
     return (
-      <div style={{ minHeight: '100vh', backgroundColor: '#111827', color: 'white', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-        <div style={{ backgroundColor: '#1f2937', padding: '40px', borderRadius: '15px', maxWidth: '600px', width: '100%' }}>
-          <h1 style={{ textAlign: 'center' }}>📝 Sınav Karnesi</h1>
-          <div style={{ textAlign: 'center', fontSize: '1.2rem', marginBottom: '20px', color: '#34d399' }}>Toplam: {scoreData.total} / 100</div>
+      <div style={{ minHeight: '100vh', backgroundColor: '#111827', color: 'white', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' }}>
+        <div style={{ backgroundColor: '#1f2937', padding: '40px', borderRadius: '15px', maxWidth: '600px', width: '100%', textAlign: 'center' }}>
           
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-            <div style={{ backgroundColor: '#374151', padding: '15px', borderRadius: '10px' }}>
-              <h3>Grammar: {scoreData.mcq} / 60</h3>
-            </div>
-            <div style={{ backgroundColor: '#374151', padding: '15px', borderRadius: '10px' }}>
-              <h3>Writing: {scoreData.writing?.score} / 20</h3>
-              <p style={{ fontSize: '0.9rem', color: '#d1d5db' }}>"{scoreData.writing?.feedback}"</p>
-            </div>
-            <div style={{ backgroundColor: '#374151', padding: '15px', borderRadius: '10px' }}>
-              <h3>Speaking: {scoreData.speaking?.score} / 20</h3>
-              <p style={{ fontSize: '0.9rem', color: '#d1d5db' }}>"{scoreData.speaking?.feedback}"</p>
-              <p style={{ fontSize: '0.8rem', color: '#9ca3af', marginTop:'5px' }}>Algılanan Ses: "{transcript || 'Ses algılanamadı'}"</p>
-            </div>
+          <h1 style={{ fontSize: '2.5rem', marginBottom: '10px' }}>🎉 Exam Completed!</h1>
+          
+          <div style={{ margin: '20px 0', padding: '20px', backgroundColor: '#374151', borderRadius: '10px' }}>
+            <p style={{ color: '#9ca3af', fontSize: '0.9rem', marginBottom: '5px' }}>Your English Level</p>
+            <div style={{ fontSize: '3.5rem', fontWeight: 'bold', color: '#34d399' }}>{scoreData.level}</div>
+            <p style={{ color: 'white', fontSize: '1.2rem', marginTop: '10px' }}>Total Score: {scoreData.total} / 100</p>
           </div>
-          <button onClick={() => navigate('/dashboard')} style={{ width: '100%', marginTop: '20px', padding: '15px', backgroundColor: '#4F46E5', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Dashboard'a Dön</button>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', textAlign: 'left' }}>
+            <div style={{backgroundColor:'#111827', padding:'10px', borderRadius:'8px'}}>📚 Grammar: <span style={{float:'right'}}>{scoreData.mcq} pts</span></div>
+            <div style={{backgroundColor:'#111827', padding:'10px', borderRadius:'8px'}}>🎧 Listening: <span style={{float:'right'}}>{scoreData.listening} pts</span></div>
+            <div style={{backgroundColor:'#111827', padding:'10px', borderRadius:'8px'}}>✍️ Writing: <span style={{float:'right'}}>{scoreData.writing} pts</span></div>
+            <div style={{backgroundColor:'#111827', padding:'10px', borderRadius:'8px'}}>🎤 Speaking: <span style={{float:'right'}}>{scoreData.speaking} pts</span></div>
+          </div>
+          
+          <button onClick={() => navigate('/profile')} style={{ width: '100%', marginTop: '30px', padding: '15px', backgroundColor: '#4F46E5', color: 'white', borderRadius: '8px', fontWeight: 'bold', cursor:'pointer', border:'none', fontSize: '1.1rem' }}>
+            Go to Profile ➡️
+          </button>
         </div>
       </div>
     );
   }
 
+  // --- SINAV FORMU ---
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f3f4f6', padding: '40px 20px' }}>
-      <div style={{ maxWidth: '800px', margin: '0 auto', backgroundColor: 'white', padding: '40px', borderRadius: '15px' }}>
-        <h1 style={{ textAlign: 'center', marginBottom: '40px' }}>English Exam (AI Powered)</h1>
+      <div style={{ maxWidth: '800px', margin: '0 auto', backgroundColor: 'white', padding: '40px', borderRadius: '15px', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}>
+        <h1 style={{ textAlign: 'center', marginBottom: '30px', color:'#1f2937', fontSize: '2rem' }}>English Proficiency Assessment</h1>
 
-        {/* PART 1: MCQ */}
-        <div style={{ marginBottom: '40px' }}>
-          <h2>Part 1: Grammar</h2>
-          {questions.map((q, index) => (
-            <div key={index} style={{ marginBottom: '20px', padding: '10px', backgroundColor: '#f9fafb' }}>
-              <p><b>{index + 1}. {q.text}</b></p>
-              {q.options.map((opt, i) => (
-                <label key={i} style={{ display: 'block', margin: '5px 0' }}>
-                  <input type="radio" name={`q-${q.id}`} onChange={() => handleMcqChange(q.id, opt)} /> {opt}
-                </label>
-              ))}
+        {/* 1. GRAMMAR */}
+        <div style={{marginBottom:'40px'}}>
+          <h2 style={{ color: '#4F46E5', borderBottom: '2px solid #e5e7eb', paddingBottom: '10px', marginBottom:'20px' }}>Part 1: Grammar & Vocabulary</h2>
+          {questions.map((q, i) => (
+            <div key={i} style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f9fafb', borderRadius: '8px' }}>
+              <p style={{marginBottom: '10px', fontWeight: '500'}}>{i+1}. {q.text}</p>
+              <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px'}}>
+                {q.options.map(opt => (
+                  <label key={opt} style={{ cursor:'pointer', display: 'flex', alignItems: 'center' }}>
+                    <input type="radio" name={`q-${q.id}`} onChange={() => setMcqAnswers({...mcqAnswers, [q.id]: opt})} style={{marginRight: '8px'}} /> 
+                    {opt}
+                  </label>
+                ))}
+              </div>
             </div>
           ))}
         </div>
 
-        {/* PART 2: WRITING */}
-        <div style={{ marginBottom: '40px' }}>
-          <h2>Part 2: Writing</h2>
-          <div style={{ padding: '10px', backgroundColor: '#fff7ed', marginBottom: '10px' }}><b>Topic:</b> {writingTopic}</div>
-          <textarea rows="6" style={{ width: '100%', padding:'10px' }} onChange={(e) => setWritingAnswer(e.target.value)} placeholder="Write here..."></textarea>
+        {/* 2. WRITING */}
+        <div style={{marginBottom:'40px'}}>
+          <h2 style={{ color: '#4F46E5', borderBottom: '2px solid #e5e7eb', paddingBottom: '10px', marginBottom:'20px' }}>Part 2: Writing</h2>
+          <div style={{backgroundColor:'#fff7ed', padding:'15px', marginBottom:'15px', borderRadius:'8px', borderLeft: '4px solid #f97316'}}>
+            <b style={{color: '#c2410c'}}>Topic:</b> {writingTopic}
+          </div>
+          <textarea rows="6" style={{width:'100%', padding:'15px', border:'1px solid #d1d5db', borderRadius:'8px', fontSize: '1rem'}} placeholder="Type your essay here..." onChange={(e) => setWritingAnswer(e.target.value)}></textarea>
         </div>
 
-        {/* PART 3: SPEAKING (YENİLENMİŞ) */}
-        <div style={{ marginBottom: '40px' }}>
-          <h2>Part 3: Speaking</h2>
-          <p>Read these sentences aloud:</p>
-          <div style={{ padding: '15px', backgroundColor: '#f0fdf4', marginBottom: '15px' }}>
-            {speakingSentences.map((sent, i) => <p key={i}>• {sent}</p>)}
+        {/* 3. SPEAKING */}
+        <div style={{marginBottom:'40px'}}>
+          <h2 style={{ color: '#4F46E5', borderBottom: '2px solid #e5e7eb', paddingBottom: '10px', marginBottom:'20px' }}>Part 3: Speaking</h2>
+          <div style={{backgroundColor:'#f0fdf4', padding:'15px', marginBottom:'15px', borderRadius:'8px', borderLeft: '4px solid #22c55e'}}>
+            <p style={{fontWeight: 'bold', color: '#15803d', marginBottom: '5px'}}>Read the following sentences aloud:</p>
+            <ul style={{listStyleType: 'disc', paddingLeft: '20px', color: '#166534'}}>
+              {speakingSentences.map((s, i) => <li key={i} style={{marginBottom: '5px'}}>{s}</li>)}
+            </ul>
           </div>
-          
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-            {!isRecording ? 
-              <button onClick={startRecording} style={{ padding: '10px 20px', backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '50px', cursor:'pointer' }}>🎤 Start Speaking</button> :
-              <button onClick={stopRecording} style={{ padding: '10px 20px', backgroundColor: '#374151', color: 'white', border: 'none', borderRadius: '50px', cursor:'pointer' }}>⏹ Stop</button>
-            }
-            {isRecording && <span style={{color:'red'}}>Dinliyorum...</span>}
-          </div>
-          
-          {/* Anlık Ne Duyduğunu Göster */}
-          <div style={{ marginTop: '10px', padding: '10px', backgroundColor: '#eee', borderRadius: '5px', minHeight:'40px' }}>
-            <small style={{color:'#666'}}>Transkript (Algılanan):</small>
-            <p style={{fontStyle:'italic'}}>{transcript}</p>
+          <div style={{display:'flex', alignItems:'center', gap:'15px', backgroundColor: '#f3f4f6', padding: '15px', borderRadius: '50px'}}>
+            <button onClick={isRecording ? stopRecording : startRecording} style={{ padding: '12px 25px', backgroundColor: isRecording ? '#dc2626' : '#4F46E5', color: 'white', borderRadius: '50px', cursor:'pointer', border:'none', fontWeight: 'bold', minWidth: '120px' }}>
+              {isRecording ? "Stop ⏹" : "Record 🎤"}
+            </button>
+            <span style={{color:'#4b5563', fontStyle:'italic', flex: 1}}>{transcript || "Click Record and start speaking..."}</span>
           </div>
         </div>
 
-        <button onClick={handleSubmit} style={{ width: '100%', padding: '15px', backgroundColor: '#4F46E5', color: 'white', border: 'none', borderRadius: '10px', fontSize:'1.2rem', cursor:'pointer' }}>Finish Exam</button>
+        {/* 4. LISTENING */}
+        <div style={{marginBottom:'40px'}}>
+          <h2 style={{ color: '#4F46E5', borderBottom: '2px solid #e5e7eb', paddingBottom: '10px', marginBottom:'20px' }}>Part 4: Listening</h2>
+          
+          <div style={{ textAlign: 'center', marginBottom: '30px', padding: '20px', backgroundColor: '#eff6ff', borderRadius: '10px' }}>
+            <button onClick={playAudio} style={{ padding: '12px 30px', backgroundColor: '#F59E0B', color: 'white', border: 'none', borderRadius: '50px', fontSize: '1.1rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', margin: '0 auto' }}>
+              🔊 Play Audio Passage
+            </button>
+            <p style={{ fontSize: '0.9rem', color: '#6b7280', marginTop: '10px' }}>Listen carefully to the passage. You can replay it if needed.</p>
+          </div>
+
+          {listeningQuestions.map((q, i) => (
+            <div key={i} style={{ marginBottom: '15px', padding: '15px', backgroundColor: '#fffbeb', borderRadius: '8px', border: '1px solid #fef3c7' }}>
+              <p style={{marginBottom: '10px', fontWeight: 'bold', color: '#92400e'}}>{i+1}. {q.text}</p>
+              <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px'}}>
+                {q.options.map(opt => (
+                  <label key={opt} style={{ cursor:'pointer', display: 'flex', alignItems: 'center' }}>
+                    <input type="radio" name={`lq-${q.id}`} onChange={() => setListeningAnswers({...listeningAnswers, [q.id]: opt})} style={{marginRight: '8px'}} /> 
+                    {opt}
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <button onClick={handleSubmit} style={{ width: '100%', padding: '20px', backgroundColor: '#10b981', color: 'white', borderRadius: '10px', fontSize: '1.3rem', fontWeight: 'bold', cursor:'pointer', border:'none', boxShadow: '0 4px 15px rgba(16, 185, 129, 0.4)' }}>
+          Submit Exam ✅
+        </button>
+
       </div>
     </div>
   );

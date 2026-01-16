@@ -1,145 +1,45 @@
 import express from 'express';
-import { prisma } from '../index.js';
-import { authenticate, requireRole } from '../middleware/auth.js';
+import { prisma } from '../db.js'; // ARTIK db.js DOSYASINDAN ÇEKİYORUZ!
 
 const router = express.Router();
 
-// Teacher dashboard - List all students and their exam history
-router.get('/teacher', authenticate, requireRole('TEACHER', 'ADMIN'), async (req, res) => {
+// GET /profile -> Kullanıcı bilgilerini ve sınavlarını getir
+router.get('/profile', async (req, res) => {
   try {
-    const students = await prisma.user.findMany({
-      where: {
-        role: 'STUDENT'
-      },
-      include: {
-        exams: {
-          orderBy: {
-            createdAt: 'desc'
-          },
-          select: {
-            id: true,
-            status: true,
-            overallScore: true,
-            cefrLevel: true,
-            createdAt: true
-          }
-        }
-      }
+    const userId = 1; // Sabit kullanıcı (Test için)
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, email: true }
     });
 
-    res.json(students);
-  } catch (error) {
-    console.error('Teacher dashboard error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Teacher dashboard - Get detailed answers for a specific student
-router.get('/teacher/student/:id', authenticate, requireRole('TEACHER', 'ADMIN'), async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const student = await prisma.user.findUnique({
-      where: {
-        id,
-        role: 'STUDENT'
-      },
-      include: {
-        exams: {
-          orderBy: {
-            createdAt: 'desc'
-          },
-          include: {
-            answers: {
-              orderBy: {
-                createdAt: 'asc'
-              }
-            }
-          }
-        }
-      }
-    });
-
-    if (!student) {
-      return res.status(404).json({ error: 'Student not found' });
+    if (!user) {
+      return res.status(404).json({ error: "Kullanıcı bulunamadı" });
     }
 
-    res.json(student);
-  } catch (error) {
-    console.error('Student details error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+    const examResults = await prisma.examResult.findMany({
+      where: { userId: userId },
+      orderBy: { date: 'desc' }
+    });
 
-// Admin dashboard - Full system overview
-router.get('/admin', authenticate, requireRole('ADMIN'), async (req, res) => {
-  try {
-    const [users, exams, answers] = await Promise.all([
-      prisma.user.findMany({
-        select: {
-          id: true,
-          email: true,
-          role: true,
-          createdAt: true
-        }
-      }),
-      prisma.exam.findMany({
-        include: {
-          student: {
-            select: {
-              id: true,
-              email: true
-            }
-          }
-        },
-        orderBy: {
-          createdAt: 'desc'
-        }
-      }),
-      prisma.answer.count()
-    ]);
-
-    const stats = {
-      totalUsers: users.length,
-      totalStudents: users.filter(u => u.role === 'STUDENT').length,
-      totalTeachers: users.filter(u => u.role === 'TEACHER').length,
-      totalAdmins: users.filter(u => u.role === 'ADMIN').length,
-      totalExams: exams.length,
-      totalAnswers: answers,
-      averageScore: exams.length > 0
-        ? Math.round(exams.reduce((sum, e) => sum + (e.overallScore || 0), 0) / exams.length)
-        : 0
-    };
+    const totalExams = examResults.length;
+    const averageScore = totalExams > 0 
+      ? Math.floor(examResults.reduce((acc, curr) => acc + curr.score, 0) / totalExams) 
+      : 0;
 
     res.json({
-      stats,
-      users,
-      recentExams: exams.slice(0, 10)
-    });
-  } catch (error) {
-    console.error('Admin dashboard error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Admin - Delete user
-router.delete('/admin/user/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // Prevent deleting yourself
-    if (id === req.user.id) {
-      return res.status(400).json({ error: 'Cannot delete your own account' });
-    }
-
-    await prisma.user.delete({
-      where: { id }
+      user,
+      stats: {
+        totalExams,
+        averageScore,
+        lastExamDate: totalExams > 0 ? examResults[0].date : null
+      },
+      history: examResults
     });
 
-    res.json({ message: 'User deleted successfully' });
   } catch (error) {
-    console.error('Delete user error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error("Dashboard hatası:", error);
+    res.status(500).json({ error: "Sunucu hatası" });
   }
 });
 

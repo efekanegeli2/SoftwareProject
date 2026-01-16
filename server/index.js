@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from './db.js'; // db.js bağlantısı
 import authRoutes from './routes/auth.js';
 import examRoutes from './routes/exam.js';
 import dashboardRoutes from './routes/dashboard.js';
@@ -9,145 +9,173 @@ import dashboardRoutes from './routes/dashboard.js';
 dotenv.config();
 
 const app = express();
-const prisma = new PrismaClient();
-
-// Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
-// Routes
+// Rotalar
 app.use('/auth', authRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 app.use('/exam', examRoutes);
-app.use('/dashboard', dashboardRoutes);
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', service: 'server' });
-});
+app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
-const PORT = process.env.PORT || 3000;
+// --- GELİŞMİŞ AI SORU HAVUZU ---
+// Gerçek bir AI gibi davranması için soruları kategorize ettik ve zorlaştırdık.
+const ADVANCED_QUESTION_BANK = [
+  // A1-A2 Seviyesi (Isınma)
+  { text: "I _____ strictly forbidden from smoking in this area.", options: ["am", "is", "be", "are"], correct: "am" },
+  { text: "She _____ usually _____ breakfast at 7 AM.", options: ["do / eat", "does / eat", "does / eats", "do / eats"], correct: "does / eat" },
+  { text: "Where _____ you go last summer holiday?", options: ["did", "do", "were", "was"], correct: "did" },
+  
+  // B1-B2 Seviyesi (Orta)
+  { text: "If I _____ you, I would accept that offer immediately.", options: ["was", "am", "were", "be"], correct: "were" },
+  { text: "By the time we arrived, the film _____ already _____.", options: ["has / started", "had / started", "was / starting", "did / start"], correct: "had / started" },
+  { text: "He is the man _____ car was stolen yesterday.", options: ["who", "which", "whose", "that"], correct: "whose" },
+  { text: "I look forward to _____ from you soon.", options: ["hear", "hearing", "heard", "be heard"], correct: "hearing" },
+  { text: "Despite _____ tired, he continued working.", options: ["he was", "of being", "being", "to be"], correct: "being" },
 
-// --- YAPAY ZEKA SINAV OLUŞTURUCU (MOCK AI) ---
+  // C1-C2 Seviyesi (İleri - Akademik)
+  { text: "Not only _____ the deadline, but he also submitted a flawless report.", options: ["he met", "did he meet", "he did meet", "met he"], correct: "did he meet" },
+  { text: "Had I known about the risks, I _____ participated in the experiment.", options: ["would not have", "will not have", "would not", "had not"], correct: "would not have" },
+  { text: "The government is considering _____ a new tax on luxury goods.", options: ["to impose", "imposing", "impose", "of imposing"], correct: "imposing" },
+  { text: "It is high time we _____ measures to protect the environment.", options: ["take", "took", "will take", "have taken"], correct: "took" },
+  { text: "Scarcely had he entered the room _____ the phone rang.", options: ["when", "than", "after", "while"], correct: "when" },
+  { text: "This methodology is _____ to yield significant results.", options: ["bound", "likely", "probable", "possible"], correct: "bound" },
+  { text: "I'd rather you _____ make so much noise while I'm studying.", options: ["don't", "didn't", "won't", "not"], correct: "didn't" }
+];
+
+const WRITING_TOPICS = [
+  "Discuss the impact of Artificial Intelligence on future job markets.",
+  "Is climate change the greatest threat facing humanity? Why or why not?",
+  "Should education be completely free for everyone? Discuss the pros and cons.",
+  "The role of social media in shaping modern democracy.",
+  "Describe a significant technological advancement and its effects on society."
+];
+
+const LISTENING_SCENARIOS = [
+  {
+    topic: "The Future of Mars Colonization",
+    passage: "As humanity looks towards the stars, Mars has become the primary candidate for colonization. However, the challenges are immense. Radiation levels, lack of breathable atmosphere, and extreme cold make it a hostile environment. Scientists are proposing terraforming as a long-term solution, essentially engineering the planet to support human life.",
+    questions: [
+      { id: 'L1', text: "What is the primary candidate for colonization?", options: ["Moon", "Mars", "Venus", "Jupiter"], correct: "Mars" },
+      { id: 'L2', text: "What is mentioned as a major challenge?", options: ["Aliens", "Radiation", "Heat", "Gravity"], correct: "Radiation" },
+      { id: 'L3', text: "What long-term solution is proposed?", options: ["Terraforming", "Building Domes", "Underground Cities", "Space Stations"], correct: "Terraforming" },
+      { id: 'L4', text: "Mars is described as a _____ environment.", options: ["Friendly", "Hostile", "Warm", "Wet"], correct: "Hostile" },
+      { id: 'L5', text: "The passage discusses engineering the planet to support...", options: ["Robot life", "Plant life", "Human life", "No life"], correct: "Human life" }
+    ]
+  },
+  {
+    topic: "History of the Internet",
+    passage: "The Internet started in the 1960s as a way for government researchers to share information. Computers in the '60s were large and immobile and in order to make use of information stored in any one computer, one had to either travel to the site of the computer or have magnetic tapes sent through the conventional postal system.",
+    questions: [
+      { id: 'L1', text: "When did the Internet start?", options: ["1980s", "1960s", "1990s", "2000s"], correct: "1960s" },
+      { id: 'L2', text: "Who was it originally for?", options: ["Students", "Gamers", "Government researchers", "Businessmen"], correct: "Government researchers" },
+      { id: 'L3', text: "Computers in the 60s were...", options: ["Small", "Mobile", "Large and immobile", "Wireless"], correct: "Large and immobile" },
+      { id: 'L4', text: "How was data shared physically?", options: ["USB Drives", "Magnetic tapes", "CDs", "Cloud"], correct: "Magnetic tapes" },
+      { id: 'L5', text: "To use data, one had to _____ to the site.", options: ["Email", "Call", "Travel", "Fax"], correct: "Travel" }
+    ]
+  }
+];
+
+// --- API: SINAV OLUŞTUR ---
 app.get('/api/exam/generate', (req, res) => {
-  console.log("AI Sınav isteği aldı, sorular hazırlanıyor...");
+  console.log("AI Generating Unique Exam...");
 
-  // 1. Havuzdaki Sorular (Genişletilebilir)
-  const questionBank = [
-    { text: "I _____ a student.", options: ["is", "are", "am", "be"], correct: "am" },
-    { text: "She _____ to the gym every day.", options: ["go", "goes", "going", "gone"], correct: "goes" },
-    { text: "They _____ football right now.", options: ["play", "plays", "are playing", "played"], correct: "are playing" },
-    { text: "_____ you like coffee?", options: ["Do", "Does", "Is", "Are"], correct: "Do" },
-    { text: "Yesterday, I _____ to the cinema.", options: ["go", "gone", "went", "was"], correct: "went" },
-    { text: "This is the _____ book I have ever read.", options: ["good", "better", "best", "goodest"], correct: "best" },
-    { text: "If it rains, we _____ stay at home.", options: ["will", "would", "are", "have"], correct: "will" },
-    { text: "I have lived here _____ 2010.", options: ["for", "since", "ago", "in"], correct: "since" },
-    { text: "He is interested _____ learning Spanish.", options: ["on", "at", "in", "with"], correct: "in" },
-    { text: "I didn't _____ the answer.", options: ["know", "knew", "known", "knows"], correct: "know" },
-    { text: "Where _____ you born?", options: ["was", "were", "are", "did"], correct: "were" },
-    { text: "The car was _____ by my father.", options: ["wash", "washed", "washing", "washes"], correct: "washed" },
-    { text: "She told me that she _____ busy.", options: ["is", "was", "were", "has"], correct: "was" },
-    { text: "You _____ wear a seatbelt.", options: ["must", "should", "might", "can"], correct: "must" },
-    { text: "I enjoy _____ movies.", options: ["watch", "watching", "to watch", "watched"], correct: "watching" },
-    { text: "This tea is too hot _____ drink.", options: ["to", "for", "that", "so"], correct: "to" },
-    { text: "Water _____ at 100 degrees Celsius.", options: ["boil", "boils", "boiling", "boiled"], correct: "boils" },
-    { text: "I look forward _____ from you.", options: ["hear", "to hear", "hearing", "to hearing"], correct: "to hearing" },
-    { text: "She is good _____ math.", options: ["in", "at", "on", "with"], correct: "at" },
-    { text: "Have you ever _____ to Paris?", options: ["been", "gone", "went", "go"], correct: "been" }
-  ];
-
-  const writingTopics = [
-    "Describe your dream holiday. Where would you go and why?",
-    "What are the advantages and disadvantages of technology?",
-    "Do you think money can buy happiness? Why or why not?",
-    "Describe a person who has influenced you the most."
-  ];
+  // 1. Soruları Karıştır ve Seç (Her test farklı olsun)
+  const shuffledQuestions = ADVANCED_QUESTION_BANK.sort(() => 0.5 - Math.random()).slice(0, 10);
+  
+  // 2. Rastgele Konular Seç
+  const randomTopic = WRITING_TOPICS[Math.floor(Math.random() * WRITING_TOPICS.length)];
+  const randomListening = LISTENING_SCENARIOS[Math.floor(Math.random() * LISTENING_SCENARIOS.length)];
 
   const speakingSets = [
-    ["Technology connects us.", "I like learning English.", "The weather is nice today."],
-    ["Health is wealth.", "Books are our best friends.", "Travel broadens the mind."],
-    ["Practice makes perfect.", "Time is money.", "Honesty is the best policy."]
+    ["Artificial Intelligence is transforming the world.", "Sustainability is key to our future.", "Critical thinking is an essential skill."],
+    ["Global warming requires urgent action.", "Education is the most powerful weapon.", "Technology brings people together."]
   ];
-
-  // 2. Rastgele 10 Soru Seç (AI Logiği)
-  // Soruları karıştır
-  const shuffledQuestions = questionBank.sort(() => 0.5 - Math.random());
-  // İlk 10 tanesini al
-  const selectedQuestions = shuffledQuestions.slice(0, 10).map((q, index) => ({
-    id: index + 1, // Frontend için ID veriyoruz
-    text: q.text,
-    options: q.options.sort(() => 0.5 - Math.random()), // Şıkları da karıştır
-    correct: q.correct
-  }));
-
-  // 3. Rastgele Writing ve Speaking Konusu Seç
-  const randomTopic = writingTopics[Math.floor(Math.random() * writingTopics.length)];
   const randomSpeaking = speakingSets[Math.floor(Math.random() * speakingSets.length)];
 
-  // 4. Paketi Frontend'e Gönder
   res.json({
-    questions: selectedQuestions,
+    questions: shuffledQuestions.map((q, i) => ({ ...q, id: i + 1 })),
+    listeningPassage: randomListening.passage,
+    listeningQuestions: randomListening.questions,
     writingTopic: randomTopic,
     speakingSentences: randomSpeaking
   });
 });
-// --- YAPAY ZEKA KODU BITTI ---
 
+// --- CEFR HESAPLAMA FONKSİYONU ---
+function calculateCEFR(score) {
+  if (score >= 90) return "C2 (Mastery)";
+  if (score >= 75) return "C1 (Advanced)";
+  if (score >= 60) return "B2 (Upper Intermediate)";
+  if (score >= 45) return "B1 (Intermediate)";
+  if (score >= 30) return "A2 (Elementary)";
+  return "A1 (Beginner)";
+}
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-});
+// --- API: DEĞERLENDİR VE KAYDET ---
+app.post('/api/exam/evaluate', async (req, res) => {
+  const { mcqAnswers, listeningAnswers, writingAnswer, speakingScore, userId, mcqScore } = req.body;
 
-// Graceful shutdown
-process.on('SIGINT', async () => {
-  await prisma.$disconnect();
-  process.exit(0);
-});
-
-export { prisma };
-
-// --- JSON Veri Okuma Limiti (Ses dosyası için gerekebilir) ---
-app.use(express.json({ limit: '50mb' })); // Büyük veriler için limit artırımı
-
-// --- YAPAY ZEKA DEĞERLENDİRME MOTORU (MOCK) ---
-app.post('/api/exam/evaluate', (req, res) => {
-  // speakingScore artık frontend'den geliyor!
-  const { mcqAnswers, writingAnswer, speakingTranscript, speakingScore } = req.body;
-
-  console.log("Gerçekçi Sınav Değerlendirmesi Başladı...");
-
-  // 1. WRITING (Burası aynı kalabilir, kelime sayar)
-  let writingScore = 0;
-  let writingFeedback = "";
-  const wordCount = writingAnswer ? writingAnswer.trim().split(/\s+/).length : 0;
-
-  if (wordCount < 10) {
-    writingScore = 5;
-    writingFeedback = "Too short. Please elaborate more.";
-  } else if (wordCount < 40) {
-    writingScore = 12;
-    writingFeedback = "Good effort, but try to use more complex sentences.";
-  } else {
-    writingScore = 20;
-    writingFeedback = "Excellent writing! Detailed and clear.";
+  // 1. Writing Puanlama (Basit Logic)
+  let writingScore = 10;
+  if (writingAnswer) {
+    const len = writingAnswer.trim().split(/\s+/).length;
+    if (len > 50) writingScore = 20;
+    else if (len > 20) writingScore = 15;
   }
 
-  // 2. SPEAKING (ARTIK DAHA AKILLI)
-  // Frontend'den gelen skoru alıyoruz (0-20 arası)
-  let finalSpeakingScore = speakingScore || 0; 
-  let speakingFeedback = "";
+  // 2. Listening Puanlama
+  let listeningScore = 0;
+  if (listeningAnswers) {
+     listeningScore = Object.keys(listeningAnswers).length * 4; // 5 soru * 4 = 20 puan max
+     if(listeningScore > 20) listeningScore = 20;
+  }
 
-  if (finalSpeakingScore === 0) {
-    speakingFeedback = "No speech detected or completely off-topic.";
-  } else if (finalSpeakingScore < 10) {
-    speakingFeedback = "Your pronunciation needs work. Some words were not recognized.";
-  } else if (finalSpeakingScore < 16) {
-    speakingFeedback = "Good pronunciation! You missed a few words but overall understandable.";
-  } else {
-    speakingFeedback = "Native-like pronunciation! Perfect match.";
+  // 3. Toplam Puan ve CEFR
+  const finalMcqScore = mcqScore || 0; 
+  const finalSpeakingScore = speakingScore || 0;
+  const totalScore = finalMcqScore + writingScore + finalSpeakingScore + listeningScore;
+  
+  const cefrLevel = calculateCEFR(totalScore); // PUANA GÖRE LEVEL BELİRLE
+
+  // 4. Veritabanına Kayıt
+  if (userId) {
+    try {
+      const uId = parseInt(userId);
+      const userExists = await prisma.user.findUnique({ where: { id: uId } });
+
+      if (userExists) {
+        await prisma.examResult.create({
+          data: {
+            userId: uId,
+            score: totalScore,
+            grammarScore: finalMcqScore,
+            writingScore: writingScore,
+            speakingScore: finalSpeakingScore,
+            listeningScore: listeningScore,
+            level: cefrLevel, // ARTIK LEVEL KAYDEDİYORUZ
+            date: new Date()
+          }
+        });
+        console.log(`✅ Exam Saved! Score: ${totalScore}, Level: ${cefrLevel}`);
+      }
+    } catch (error) {
+      console.log("❌ DB Error:", error.message);
+    }
   }
 
   res.json({
-    writing: { score: writingScore, feedback: writingFeedback },
-    speaking: { score: finalSpeakingScore, feedback: speakingFeedback }
+    totalScore,
+    cefrLevel,
+    details: {
+      grammar: finalMcqScore,
+      listening: listeningScore,
+      writing: { score: writingScore },
+      speaking: { score: finalSpeakingScore }
+    }
   });
 });
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 AI Server running on http://localhost:${PORT}`));

@@ -1,3 +1,5 @@
+// Bu dosya veritabanı yapını belirler
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,31 +9,25 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Kullanıcı Tablosu
 model User {
-  id       Int      @id @default(autoincrement())
-  email    String   @unique
+  id       Int          @id @default(autoincrement())
+  email    String       @unique
   password String
-  role     String   @default("STUDENT") // Enum yerine String yaptık
-  exams    Exam[]
+  name     String?
+  results  ExamResult[] // Bir kullanıcının birden fazla sınav sonucu olabilir
 }
 
-model Exam {
-  id           Int      @id @default(autoincrement())
-  studentId    Int
-  student      User     @relation(fields: [studentId], references: [id])
-  status       String   @default("PENDING")
-  overallScore Float?
-  cefrLevel    String?
-  answers      Answer[]
-  createdAt    DateTime @default(now())
-}
-
-model Answer {
-  id           Int    @id @default(autoincrement())
-  examId       Int
-  exam         Exam   @relation(fields: [examId], references: [id], onDelete: Cascade)
-  type         String // Enum yerine String yaptık
-  questionText String
-  userResponse String
-  aiScore      Float?
+model ExamResult {
+  id             Int      @id @default(autoincrement())
+  score          Int
+  grammarScore   Int
+  writingScore   Int
+  speakingScore  Int
+  listeningScore Int
+  level          String   @default("A1") // YENİ: Seviye bilgisi (A1, B2, C1 vs.)
+  date           DateTime @default(now())
+  
+  userId         Int
+  user           User     @relation(fields: [userId], references: [id])
 }

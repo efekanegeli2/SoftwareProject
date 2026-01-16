@@ -1,12 +1,14 @@
+# Gereksiz Klasörler
 node_modules/
-.env
-*.log
+venv/
+__pycache__/
 .DS_Store
 dist/
-build/
-__pycache__/
-*.pyc
-.venv/
-venv/
-server/prisma/dev.db
-server/prisma/dev.db-journal
+coverage/
+
+# Gizli Şifreler (Kesinlikle yüklenmemeli)
+.env
+.env.local
+*.db
+*.sqlite
+*.sqlite3
