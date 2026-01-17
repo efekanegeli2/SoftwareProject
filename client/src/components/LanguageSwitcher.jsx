@@ -9,7 +9,7 @@ export default function LanguageSwitcher({ className = '' }) {
       <select
         value={lang}
         onChange={(e) => setLang(e.target.value)}
-        className="text-sm px-2 py-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-50"
+        className="text-sm px-2 py-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-900"
         aria-label={t({ tr: 'Dil seç', en: 'Select language' })}
       >
         <option value="tr">TR</option>
