@@ -360,7 +360,7 @@ function Exam() {
 
         {/* 1. GRAMMAR */}
         <div style={{marginBottom:'40px'}}>
-          <h2 style={{ color: '#4F46E5', borderBottom: '2px solid #e5e7eb', paddingBottom: '10px', marginBottom: '20px' }}>
+          <h2 style={{ color: '#1f2937', borderBottom: '2px solid #e5e7eb', paddingBottom: '10px', marginBottom: '20px' }}>
             {t({ tr: 'Bölüm 1: Dilbilgisi & Kelime (45 Puan)', en: 'Part 1: Grammar & Vocabulary (45 Pts)' })}
           </h2>
           {questions.map((q, i) => (

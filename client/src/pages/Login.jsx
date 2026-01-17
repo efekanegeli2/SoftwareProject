@@ -34,6 +34,24 @@ export default function Login() {
     navigate(routeForRole(result.user.role));
   };
 
+  const handleDemoLogin = async (role) => {
+    const emails = {
+      STUDENT: 'student@demo.com',
+      TEACHER: 'teacher@demo.com',
+      ADMIN: 'admin@demo.com'
+    };
+    setEmail(emails[role]);
+    setPassword(DEMO_PASSWORD);
+    setError('');
+
+    const result = await login(emails[role], DEMO_PASSWORD);
+    if (!result.success) {
+      setError(result.error);
+      return;
+    }
+    navigate(routeForRole(result.user.role));
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-600 to-slate-900 flex items-center justify-center px-4 relative">
       {/* Top-right language switcher (FR17) */}
@@ -84,6 +102,35 @@ export default function Login() {
             {loading ? t({ tr: 'Giriş yapılıyor...', en: 'Logging in...' }) : t({ tr: 'Giriş Yap', en: 'Login' })}
           </button>
         </form>
+
+        <div className="mt-6">
+          <div className="text-center mb-3">
+            <span className="text-sm text-gray-500">{t({ tr: 'Demo hesaplarla dene:', en: 'Try with demo accounts:' })}</span>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={() => handleDemoLogin('STUDENT')}
+              className="py-2 px-3 text-xs bg-green-50 text-green-700 rounded-lg border border-green-200 hover:bg-green-100 font-medium transition"
+            >
+              🎓 {t({ tr: 'Öğrenci', en: 'Student' })}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDemoLogin('TEACHER')}
+              className="py-2 px-3 text-xs bg-blue-50 text-blue-700 rounded-lg border border-blue-200 hover:bg-blue-100 font-medium transition"
+            >
+              👨‍🏫 {t({ tr: 'Öğretmen', en: 'Teacher' })}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDemoLogin('ADMIN')}
+              className="py-2 px-3 text-xs bg-purple-50 text-purple-700 rounded-lg border border-purple-200 hover:bg-purple-100 font-medium transition"
+            >
+              ⚙️ {t({ tr: 'Admin', en: 'Admin' })}
+            </button>
+          </div>
+        </div>
 
         <div className="mt-4 text-sm text-gray-600 text-center">
           {t({ tr: 'Hesabın yok mu?', en: "Don't have an account?" })}{' '}
