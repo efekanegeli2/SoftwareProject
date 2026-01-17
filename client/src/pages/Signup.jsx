@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useI18n } from '../context/I18nContext.jsx';
+import LanguageSwitcher from '../components/LanguageSwitcher.jsx';
 
 function routeForRole(role) {
   if (role === 'ADMIN') return '/admin';
@@ -11,6 +13,7 @@ function routeForRole(role) {
 export default function Signup() {
   const navigate = useNavigate();
   const { register } = useAuth();
+  const { t } = useI18n();
 
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('STUDENT');
@@ -33,7 +36,10 @@ export default function Signup() {
     setError('');
 
     if (!canSubmit) {
-      setError('Bilgileri kontrol et. Şifreler aynı olmalı ve en az 6 karakter olmalı.');
+      setError(t({
+        tr: 'Bilgileri kontrol et. Şifreler aynı olmalı ve en az 6 karakter olmalı.',
+        en: 'Please check the form. Passwords must match and be at least 6 characters.'
+      }));
       return;
     }
 
@@ -50,11 +56,17 @@ export default function Signup() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-600 to-slate-900 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-gradient-to-br from-indigo-600 to-slate-900 flex items-center justify-center px-4 relative">
+      {/* Top-right language switcher (FR17) */}
+      <div className="absolute top-4 right-4 z-20">
+        <LanguageSwitcher className="bg-white/90 backdrop-blur px-3 py-2 rounded-xl shadow-md" />
+      </div>
       <div className="w-full max-w-md bg-white/95 backdrop-blur rounded-2xl shadow-2xl p-8">
-        <div className="mb-6 text-center">
-          <h1 className="text-2xl font-extrabold text-gray-900">Hesap Oluştur</h1>
-          <p className="text-gray-600 mt-2">Yeni hesap ile giriş yap</p>
+        <div className="mb-6">
+          <div className="text-center mt-3">
+            <h1 className="text-2xl font-extrabold text-gray-900">{t({ tr: 'Hesap Oluştur', en: 'Create Account' })}</h1>
+            <p className="text-gray-600 mt-2">{t({ tr: 'Yeni hesap ile giriş yap', en: 'Sign in with a new account' })}</p>
+          </div>
         </div>
 
         {error ? (
@@ -75,38 +87,38 @@ export default function Signup() {
           </div>
 
           <div>
-            <label className="text-sm font-semibold text-gray-700">Rol</label>
+            <label className="text-sm font-semibold text-gray-700">{t({ tr: 'Rol', en: 'Role' })}</label>
             <select
               value={role}
               onChange={(e) => setRole(e.target.value)}
               className="mt-1 w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              <option value="STUDENT">🎓 Student</option>
-              <option value="TEACHER">🧑‍🏫 Teacher</option>
+              <option value="STUDENT">🎓 {t({ tr: 'Öğrenci', en: 'Student' })}</option>
+              <option value="TEACHER">🧑‍🏫 {t({ tr: 'Öğretmen', en: 'Teacher' })}</option>
             </select>
-            <p className="mt-1 text-xs text-gray-500">Demo proje olduğu için Teacher rolü de seçilebilir.</p>
+            <p className="mt-1 text-xs text-gray-500">{t({ tr: 'Demo proje olduğu için Teacher rolü de seçilebilir.', en: 'Since this is a demo project, you can also choose the Teacher role.' })}</p>
           </div>
 
           <div>
-            <label className="text-sm font-semibold text-gray-700">Şifre</label>
+            <label className="text-sm font-semibold text-gray-700">{t({ tr: 'Şifre', en: 'Password' })}</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="mt-1 w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="En az 6 karakter"
+              placeholder={t({ tr: 'En az 6 karakter', en: 'At least 6 characters' })}
               required
             />
           </div>
 
           <div>
-            <label className="text-sm font-semibold text-gray-700">Şifre (Tekrar)</label>
+            <label className="text-sm font-semibold text-gray-700">{t({ tr: 'Şifre (Tekrar)', en: 'Password (Confirm)' })}</label>
             <input
               type="password"
               value={password2}
               onChange={(e) => setPassword2(e.target.value)}
               className="mt-1 w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="Şifreyi tekrar yaz"
+              placeholder={t({ tr: 'Şifreyi tekrar yaz', en: 'Re-enter password' })}
               required
             />
           </div>
@@ -116,14 +128,14 @@ export default function Signup() {
             disabled={loading || !canSubmit}
             className="w-full py-3 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-700 disabled:opacity-50"
           >
-            {loading ? 'Kayıt yapılıyor...' : 'Kayıt Ol'}
+            {loading ? t({ tr: 'Kayıt yapılıyor...', en: 'Creating account...' }) : t({ tr: 'Kayıt Ol', en: 'Sign up' })}
           </button>
         </form>
 
         <div className="mt-6 text-sm text-gray-600 text-center">
-          Zaten hesabın var mı?{' '}
+          {t({ tr: 'Zaten hesabın var mı?', en: 'Already have an account?' })}{' '}
           <Link className="text-indigo-700 font-semibold hover:underline" to="/login">
-            Giriş yap
+            {t({ tr: 'Giriş yap', en: 'Login' })}
           </Link>
         </div>
       </div>

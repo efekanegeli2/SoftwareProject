@@ -19,6 +19,7 @@ import {
   getActiveExam,
   clearActiveExam,
   logCheatingEvent,
+  listCheatingEventsForUser,
   listMcqQuestions,
   createMcqQuestion,
   deleteMcqQuestion
@@ -46,6 +47,193 @@ function calculateCEFR(score) {
   if (score >= 45) return 'B1 (Intermediate)';
   if (score >= 30) return 'A2 (Elementary)';
   return 'A1 (Beginner)';
+}
+
+// --- INTEGRITY SESSION TRACKING (FR15 - multiple sessions) ---
+// We keep a lightweight in-memory map of "active exam sessions" per attempt.
+// This detects multiple tabs/devices during an active attempt without changing the DB schema.
+const SESSION_TTL_MS = 2 * 60 * 1000; // consider a session active if seen within last 2 minutes
+const attemptSessions = new Map(); // attemptId -> Map(sessionId -> { lastSeen, ip, ua, lastConflictLog })
+
+function cleanupAttemptSessions(attemptId, nowMs) {
+  const m = attemptSessions.get(attemptId);
+  if (!m) return;
+  for (const [sid, meta] of m.entries()) {
+    if (!meta?.lastSeen || nowMs - meta.lastSeen > SESSION_TTL_MS) m.delete(sid);
+  }
+  if (m.size === 0) attemptSessions.delete(attemptId);
+}
+
+function getOtherActiveSessionIds(m, sessionId, nowMs) {
+  const others = [];
+  for (const [sid, meta] of m.entries()) {
+    if (sid === sessionId) continue;
+    if (meta?.lastSeen && nowMs - meta.lastSeen <= SESSION_TTL_MS) others.push(sid);
+  }
+  return others;
+}
+
+// --- REPORT EXPORT HELPERS (FR16) ---
+function csvEscape(value) {
+  const s = value === null || value === undefined ? '' : String(value);
+  // Escape if contains delimiter, quotes, or new line.
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function toCsv(rows) {
+  return rows.map((row) => row.map(csvEscape).join(',')).join('\n');
+}
+
+function dateStamp() {
+  return new Date().toISOString().slice(0, 10).replace(/-/g, '');
+}
+
+function sendCsv(res, filenameBase, headerRow, dataRows) {
+  // Add UTF-8 BOM for Excel compatibility.
+  const csv = '\ufeff' + toCsv([headerRow, ...dataRows]);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}.csv"`);
+  res.status(200).send(csv);
+}
+
+function pdfTextEscape(value) {
+  const s = value === null || value === undefined ? '' : String(value);
+  // Escape characters that are special inside PDF literal strings.
+  return s.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+}
+
+function wrapTextLines(line, maxLen = 92) {
+  const str = String(line ?? '');
+  if (str.length <= maxLen) return [str];
+
+  const out = [];
+  const words = str.split(/\s+/).filter(Boolean);
+  let cur = '';
+
+  for (const w of words) {
+    if (!cur) {
+      if (w.length > maxLen) {
+        for (let i = 0; i < w.length; i += maxLen) out.push(w.slice(i, i + maxLen));
+      } else {
+        cur = w;
+      }
+      continue;
+    }
+
+    if (cur.length + 1 + w.length <= maxLen) {
+      cur = `${cur} ${w}`;
+    } else {
+      out.push(cur);
+      if (w.length > maxLen) {
+        for (let i = 0; i < w.length; i += maxLen) out.push(w.slice(i, i + maxLen));
+        cur = '';
+      } else {
+        cur = w;
+      }
+    }
+  }
+
+  if (cur) out.push(cur);
+  return out.length ? out : [''];
+}
+
+function buildSimplePdf(title, lines) {
+  const normalizedTitle = String(title || 'Report');
+  const wrapped = [];
+  for (const line of lines || []) {
+    wrapped.push(...wrapTextLines(line, 92));
+  }
+
+  const linesPerPage = 48;
+  const pages = [];
+  for (let i = 0; i < wrapped.length; i += linesPerPage) {
+    pages.push(wrapped.slice(i, i + linesPerPage));
+  }
+  if (pages.length === 0) pages.push([]);
+
+  // PDF object numbering:
+  // 1 = Catalog, 2 = Pages, 3 = Font, then [Page, Contents] pairs.
+  const pageCount = pages.length;
+  const pageObjNums = [];
+  const contentObjNums = [];
+  let nextNum = 4;
+  for (let i = 0; i < pageCount; i++) {
+    pageObjNums.push(nextNum);
+    contentObjNums.push(nextNum + 1);
+    nextNum += 2;
+  }
+  const maxObj = nextNum - 1;
+
+  let out = '%PDF-1.4\n';
+  const offsets = new Array(maxObj + 1).fill(0);
+
+  const add = (s) => {
+    out += s;
+  };
+
+  const addObj = (num, body) => {
+    offsets[num] = Buffer.byteLength(out, 'utf8');
+    add(`${num} 0 obj\n${body}\nendobj\n`);
+  };
+
+  const kids = pageObjNums.map((n) => `${n} 0 R`).join(' ');
+  addObj(1, `<< /Type /Catalog /Pages 2 0 R >>`);
+  addObj(2, `<< /Type /Pages /Kids [ ${kids} ] /Count ${pageCount} >>`);
+  addObj(3, `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>`);
+
+  const mediaBox = '[0 0 595 842]'; // A4 in points
+
+  for (let i = 0; i < pageCount; i++) {
+    const pageNum = pageObjNums[i];
+    const contentNum = contentObjNums[i];
+    const pageTitle = pageCount > 1 ? `${normalizedTitle} (Page ${i + 1}/${pageCount})` : normalizedTitle;
+
+    const ops = [];
+    ops.push('BT');
+    ops.push('/F1 18 Tf 50 800 Td');
+    ops.push(`(${pdfTextEscape(pageTitle)}) Tj`);
+    ops.push('/F1 10 Tf 0 -22 Td');
+
+    const pageLines = pages[i] || [];
+    if (!pageLines.length) {
+      ops.push(`(${pdfTextEscape('No data.')}) Tj`);
+    } else {
+      for (let li = 0; li < pageLines.length; li++) {
+        const line = pageLines[li];
+        ops.push(`(${pdfTextEscape(line)}) Tj`);
+        if (li !== pageLines.length - 1) ops.push('0 -14 Td');
+      }
+    }
+    ops.push('ET');
+
+    const content = ops.join('\n');
+    const contentLen = Buffer.byteLength(content, 'utf8');
+
+    addObj(
+      pageNum,
+      `<< /Type /Page /Parent 2 0 R /MediaBox ${mediaBox} /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentNum} 0 R >>`
+    );
+    addObj(contentNum, `<< /Length ${contentLen} >>\nstream\n${content}\nendstream`);
+  }
+
+  const xrefOffset = Buffer.byteLength(out, 'utf8');
+  add(`xref\n0 ${maxObj + 1}\n`);
+  add('0000000000 65535 f \n');
+  for (let i = 1; i <= maxObj; i++) {
+    const off = offsets[i] || 0;
+    add(`${String(off).padStart(10, '0')} 00000 n \n`);
+  }
+  add(`trailer\n<< /Size ${maxObj + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`);
+
+  return Buffer.from(out, 'utf8');
+}
+
+function sendPdf(res, filenameBase, title, lines) {
+  const pdf = buildSimplePdf(title, lines);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}.pdf"`);
+  res.status(200).send(pdf);
 }
 
 // --- AUTH ---
@@ -314,6 +502,143 @@ app.post('/api/integrity/event', authenticate, requireRole('STUDENT'), async (re
   }
 });
 
+// Track exam sessions per attempt to detect multiple concurrent sessions/tabs.
+app.post('/api/integrity/session/start', authenticate, requireRole('STUDENT'), async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { sessionId } = req.body || {};
+    const sid = String(sessionId || '').trim();
+    if (!sid) return res.status(400).json({ error: 'sessionId is required' });
+
+    const active = await getActiveExam(userId);
+    if (!active?.attemptId) return res.status(409).json({ error: 'No active exam attempt' });
+
+    const attemptId = Number(active.attemptId);
+    const nowMs = Date.now();
+
+    let m = attemptSessions.get(attemptId);
+    if (!m) {
+      m = new Map();
+      attemptSessions.set(attemptId, m);
+    }
+    cleanupAttemptSessions(attemptId, nowMs);
+
+    const others = getOtherActiveSessionIds(m, sid, nowMs);
+    const conflict = others.length > 0;
+    if (conflict) {
+      await logCheatingEvent(userId, 'MULTIPLE_SESSIONS', {
+        sessionId: sid,
+        otherSessionIds: others,
+        at: new Date().toISOString(),
+        userAgent: req.headers['user-agent'] || null
+      });
+    }
+
+    const meta = m.get(sid) || {};
+    m.set(sid, {
+      ...meta,
+      lastSeen: nowMs,
+      ip: req.ip,
+      ua: req.headers['user-agent'] || '',
+      lastConflictLog: meta.lastConflictLog || 0
+    });
+
+    res.json({ success: true, conflict, activeSessions: m.size });
+  } catch (e) {
+    console.error('Integrity session start error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/integrity/session/ping', authenticate, requireRole('STUDENT'), async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { sessionId } = req.body || {};
+    const sid = String(sessionId || '').trim();
+    if (!sid) return res.status(400).json({ error: 'sessionId is required' });
+
+    const active = await getActiveExam(userId);
+    if (!active?.attemptId) return res.status(409).json({ error: 'No active exam attempt' });
+
+    const attemptId = Number(active.attemptId);
+    const nowMs = Date.now();
+
+    let m = attemptSessions.get(attemptId);
+    if (!m) {
+      m = new Map();
+      attemptSessions.set(attemptId, m);
+    }
+    cleanupAttemptSessions(attemptId, nowMs);
+
+    const meta = m.get(sid) || {};
+    const others = getOtherActiveSessionIds(m, sid, nowMs);
+    const conflict = others.length > 0;
+
+    // Throttle conflict logs to avoid spamming DB.
+    const lastLogged = Number(meta.lastConflictLog) || 0;
+    if (conflict && nowMs - lastLogged > 30 * 1000) {
+      await logCheatingEvent(userId, 'MULTIPLE_SESSIONS', {
+        sessionId: sid,
+        otherSessionIds: others,
+        at: new Date().toISOString(),
+        endpoint: 'ping',
+        userAgent: req.headers['user-agent'] || null
+      });
+      meta.lastConflictLog = nowMs;
+    }
+
+    m.set(sid, {
+      ...meta,
+      lastSeen: nowMs,
+      ip: req.ip,
+      ua: req.headers['user-agent'] || ''
+    });
+
+    res.json({ success: true, conflict, activeSessions: m.size });
+  } catch (e) {
+    console.error('Integrity session ping error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/integrity/session/stop', authenticate, requireRole('STUDENT'), async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { sessionId } = req.body || {};
+    const sid = String(sessionId || '').trim();
+    if (!sid) return res.status(400).json({ error: 'sessionId is required' });
+
+    const active = await getActiveExam(userId);
+    if (!active?.attemptId) return res.json({ success: true });
+
+    const attemptId = Number(active.attemptId);
+    const m = attemptSessions.get(attemptId);
+    if (m) {
+      m.delete(sid);
+      if (m.size === 0) attemptSessions.delete(attemptId);
+    }
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Integrity session stop error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Teacher/Admin can view cheating logs for a student.
+app.get('/api/integrity/teacher/student/:id/events', authenticate, requireRole('TEACHER', 'ADMIN'), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid student id' });
+    const take = req.query?.take;
+    const skip = req.query?.skip;
+    const events = await listCheatingEventsForUser(id, { take, skip });
+    res.json(events);
+  } catch (e) {
+    console.error('Teacher integrity events error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // --- DASHBOARD (STUDENT) ---
 app.get('/api/dashboard/profile', authenticate, requireRole('STUDENT'), async (req, res) => {
   try {
@@ -333,6 +658,189 @@ app.get('/api/dashboard/profile', authenticate, requireRole('STUDENT'), async (r
     });
   } catch (e) {
     console.error('Profile dashboard error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// --- REPORTS (FR16) ---
+app.get('/api/reports/student', authenticate, requireRole('STUDENT'), async (req, res) => {
+  try {
+    const format = String(req.query?.format || 'pdf').toLowerCase();
+    if (!['pdf', 'csv'].includes(format)) {
+      return res.status(400).json({ error: "format must be 'pdf' or 'csv'" });
+    }
+
+    const userId = Number(req.user.id);
+    const user = await getUserById(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const history = await getExamResultsForUser(userId);
+    const totalExams = history.length;
+    const averageScore = totalExams > 0 ? Math.floor(history.reduce((a, r) => a + (r.score || 0), 0) / totalExams) : 0;
+    const lastExamDate = totalExams > 0 ? history[0].date : null;
+
+    const filenameBase = `student_report_${userId}_${dateStamp()}`;
+
+    if (format === 'csv') {
+      const header = ['Date', 'Level', 'TotalScore', 'Grammar', 'Listening', 'Writing', 'Speaking'];
+      const rows = history.map((r) => [
+        r.date,
+        r.level,
+        r.score,
+        r.grammarScore,
+        r.listeningScore,
+        r.writingScore,
+        r.speakingScore
+      ]);
+      return sendCsv(res, filenameBase, header, rows);
+    }
+
+    const lines = [];
+    lines.push(`Student: ${user.email}`);
+    lines.push(`Generated: ${new Date().toLocaleString()}`);
+    lines.push('');
+    lines.push('Summary');
+    lines.push(`Total exams: ${totalExams}`);
+    lines.push(`Average score: ${averageScore}/100`);
+    lines.push(`Last activity: ${lastExamDate ? new Date(lastExamDate).toLocaleString() : '-'}`);
+    lines.push('');
+    lines.push('Exam History');
+    if (!history.length) {
+      lines.push('No exams found.');
+    } else {
+      history.forEach((r, idx) => {
+        lines.push(
+          `${idx + 1}. ${new Date(r.date).toLocaleString()} • ${r.level} • ${r.score}/100 (G:${r.grammarScore}, L:${r.listeningScore}, W:${r.writingScore}, S:${r.speakingScore})`
+        );
+      });
+    }
+    return sendPdf(res, filenameBase, 'Student Report', lines);
+  } catch (e) {
+    console.error('Student report export error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/reports/teacher', authenticate, requireRole('TEACHER', 'ADMIN'), async (req, res) => {
+  try {
+    const format = String(req.query?.format || 'pdf').toLowerCase();
+    if (!['pdf', 'csv'].includes(format)) {
+      return res.status(400).json({ error: "format must be 'pdf' or 'csv'" });
+    }
+
+    const users = (await listUsers()).filter((u) => u.role === 'STUDENT');
+
+    const rows = await Promise.all(
+      users.map(async (u) => {
+        const history = await getExamResultsForUser(u.id);
+        const totalExams = history.length;
+        const averageScore = totalExams > 0 ? Math.floor(history.reduce((a, r) => a + (r.score || 0), 0) / totalExams) : 0;
+        const latest = history[0] || null;
+        return {
+          id: u.id,
+          email: u.email,
+          totalExams,
+          averageScore,
+          latestDate: latest ? latest.date : null,
+          latestScore: latest ? latest.score : null,
+          latestLevel: latest ? latest.level : null
+        };
+      })
+    );
+
+    const filenameBase = `teacher_report_${dateStamp()}`;
+
+    if (format === 'csv') {
+      const header = ['StudentId', 'Email', 'TotalExams', 'AverageScore', 'LatestDate', 'LatestScore', 'LatestLevel'];
+      const dataRows = rows.map((r) => [
+        r.id,
+        r.email,
+        r.totalExams,
+        r.averageScore,
+        r.latestDate || '',
+        r.latestScore ?? '',
+        r.latestLevel || ''
+      ]);
+      return sendCsv(res, filenameBase, header, dataRows);
+    }
+
+    const lines = [];
+    lines.push(`Teacher: ${req.user.email}`);
+    lines.push(`Generated: ${new Date().toLocaleString()}`);
+    lines.push('');
+    lines.push('Students Overview');
+    if (!rows.length) {
+      lines.push('No students found.');
+    } else {
+      rows.forEach((r, idx) => {
+        const latestPart = r.latestDate
+          ? `${new Date(r.latestDate).toLocaleString()} • ${r.latestLevel} • ${r.latestScore}/100`
+          : '-';
+        lines.push(`${idx + 1}. ${r.email} (ID: ${r.id}) — Exams: ${r.totalExams}, Avg: ${r.averageScore}/100, Latest: ${latestPart}`);
+      });
+    }
+    return sendPdf(res, filenameBase, 'Teacher Report', lines);
+  } catch (e) {
+    console.error('Teacher report export error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/reports/teacher/student/:id', authenticate, requireRole('TEACHER', 'ADMIN'), async (req, res) => {
+  try {
+    const format = String(req.query?.format || 'pdf').toLowerCase();
+    if (!['pdf', 'csv'].includes(format)) {
+      return res.status(400).json({ error: "format must be 'pdf' or 'csv'" });
+    }
+
+    const id = Number(req.params.id);
+    const user = await getUserById(id);
+    if (!user || user.role !== 'STUDENT') return res.status(404).json({ error: 'Student not found' });
+
+    const history = await getExamResultsForUser(id);
+    const totalExams = history.length;
+    const averageScore = totalExams > 0 ? Math.floor(history.reduce((a, r) => a + (r.score || 0), 0) / totalExams) : 0;
+    const lastExamDate = totalExams > 0 ? history[0].date : null;
+
+    const filenameBase = `student_report_${id}_${dateStamp()}`;
+
+    if (format === 'csv') {
+      const header = ['Date', 'Level', 'TotalScore', 'Grammar', 'Listening', 'Writing', 'Speaking'];
+      const rows = history.map((r) => [
+        r.date,
+        r.level,
+        r.score,
+        r.grammarScore,
+        r.listeningScore,
+        r.writingScore,
+        r.speakingScore
+      ]);
+      return sendCsv(res, filenameBase, header, rows);
+    }
+
+    const lines = [];
+    lines.push(`Student: ${user.email}`);
+    lines.push(`Generated by: ${req.user.email}`);
+    lines.push(`Generated: ${new Date().toLocaleString()}`);
+    lines.push('');
+    lines.push('Summary');
+    lines.push(`Total exams: ${totalExams}`);
+    lines.push(`Average score: ${averageScore}/100`);
+    lines.push(`Last activity: ${lastExamDate ? new Date(lastExamDate).toLocaleString() : '-'}`);
+    lines.push('');
+    lines.push('Exam History');
+    if (!history.length) {
+      lines.push('No exams found.');
+    } else {
+      history.forEach((r, idx) => {
+        lines.push(
+          `${idx + 1}. ${new Date(r.date).toLocaleString()} • ${r.level} • ${r.score}/100 (G:${r.grammarScore}, L:${r.listeningScore}, W:${r.writingScore}, S:${r.speakingScore})`
+        );
+      });
+    }
+    return sendPdf(res, filenameBase, 'Student Report', lines);
+  } catch (e) {
+    console.error('Teacher student report export error:', e);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

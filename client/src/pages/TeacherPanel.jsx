@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useI18n } from '../context/I18nContext.jsx';
+import LanguageSwitcher from '../components/LanguageSwitcher.jsx';
 
 const API_URL = import.meta?.env?.VITE_API_URL || 'http://localhost:3000';
 
@@ -13,6 +15,18 @@ function authHeader() {
 export default function TeacherPanel() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const { t } = useI18n();
+
+  const downloadBlob = (blob, filename) => {
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => window.URL.revokeObjectURL(url), 1500);
+  };
 
   const [tab, setTab] = useState('students'); // students | questions
 
@@ -21,6 +35,7 @@ export default function TeacherPanel() {
   const [students, setStudents] = useState([]);
   const [modal, setModal] = useState({ open: false, student: null });
   const [detail, setDetail] = useState(null);
+  const [integrity, setIntegrity] = useState({ loading: false, events: [], error: '' });
 
   // Questions
   const [loadingQuestions, setLoadingQuestions] = useState(false);
@@ -67,24 +82,72 @@ export default function TeacherPanel() {
     } catch (e) {
       console.error(e);
       if (handleAuthError(e)) return;
-      alert('Teacher listesi alınamadı. Server çalışıyor mu?');
+      alert(t({ tr: 'Öğretmen listesi alınamadı. Server çalışıyor mu?', en: 'Could not fetch teacher list. Is the server running?' }));
     } finally {
       setLoadingStudents(false);
+    }
+  };
+
+  const downloadTeacherReport = async (format) => {
+    try {
+      const res = await axios.get(`${API_URL}/api/reports/teacher?format=${format}`, {
+        headers: authHeader(),
+        responseType: 'blob'
+      });
+      const ext = format === 'csv' ? 'csv' : 'pdf';
+      downloadBlob(res.data, `teacher_report_${new Date().toISOString().slice(0, 10)}.${ext}`);
+    } catch (e) {
+      console.error(e);
+      if (handleAuthError(e)) return;
+      alert(t({ tr: 'Rapor indirilemedi.', en: 'Report download failed.' }));
+    }
+  };
+
+  const downloadStudentReport = async (studentId, format) => {
+    try {
+      const res = await axios.get(`${API_URL}/api/reports/teacher/student/${studentId}?format=${format}`, {
+        headers: authHeader(),
+        responseType: 'blob'
+      });
+      const ext = format === 'csv' ? 'csv' : 'pdf';
+      downloadBlob(res.data, `student_report_${studentId}_${new Date().toISOString().slice(0, 10)}.${ext}`);
+    } catch (e) {
+      console.error(e);
+      if (handleAuthError(e)) return;
+      alert(t({ tr: 'Öğrenci raporu indirilemedi.', en: 'Student report download failed.' }));
     }
   };
 
   const openDetails = async (student) => {
     setModal({ open: true, student });
     setDetail(null);
+    setIntegrity({ loading: true, events: [], error: '' });
     try {
       const res = await axios.get(`${API_URL}/api/dashboard/teacher/student/${student.id}`, {
         headers: authHeader()
       });
       setDetail(res.data);
+
+      // Fetch integrity/cheating events (FR15)
+      try {
+        const ires = await axios.get(`${API_URL}/api/integrity/teacher/student/${student.id}/events?take=200`, {
+          headers: authHeader()
+        });
+        setIntegrity({ loading: false, events: ires.data || [], error: '' });
+      } catch (ie) {
+        console.error(ie);
+        if (handleAuthError(ie)) return;
+        setIntegrity({
+          loading: false,
+          events: [],
+          error: t({ tr: 'Integrity logları alınamadı.', en: 'Could not fetch integrity logs.' })
+        });
+      }
     } catch (e) {
       console.error(e);
       if (handleAuthError(e)) return;
-      alert('Öğrenci detayları alınamadı.');
+      alert(t({ tr: 'Öğrenci detayları alınamadı.', en: 'Could not fetch student details.' }));
+      setIntegrity({ loading: false, events: [], error: '' });
     }
   };
 
@@ -99,7 +162,7 @@ export default function TeacherPanel() {
     } catch (e) {
       console.error(e);
       if (handleAuthError(e)) return;
-      setQError(e?.response?.data?.error || 'Soru listesi alınamadı.');
+      setQError(e?.response?.data?.error || t({ tr: 'Soru listesi alınamadı.', en: 'Could not fetch question list.' }));
     } finally {
       setLoadingQuestions(false);
     }
@@ -110,7 +173,12 @@ export default function TeacherPanel() {
     setQError('');
 
     if (!canCreateQuestion) {
-      setQError('Soru metni ve en az 2 seçenek doldurulmalı. Doğru seçenek boş olamaz.');
+      setQError(
+        t({
+          tr: 'Soru metni ve en az 2 seçenek doldurulmalı. Doğru seçenek boş olamaz.',
+          en: 'Question text and at least 2 options are required. The correct option cannot be empty.'
+        })
+      );
       return;
     }
 
@@ -140,7 +208,7 @@ export default function TeacherPanel() {
     } catch (e2) {
       console.error(e2);
       if (handleAuthError(e2)) return;
-      setQError(e2?.response?.data?.error || 'Soru eklenemedi.');
+      setQError(e2?.response?.data?.error || t({ tr: 'Soru eklenemedi.', en: 'Could not add question.' }));
     } finally {
       setQSubmitting(false);
     }
@@ -148,7 +216,7 @@ export default function TeacherPanel() {
 
   const deleteQuestion = async (id) => {
     if (deletingId) return;
-    const ok = window.confirm('Bu soruyu silmek istediğine emin misin?');
+    const ok = window.confirm(t({ tr: 'Bu soruyu silmek istediğine emin misin?', en: 'Are you sure you want to delete this question?' }));
     if (!ok) return;
 
     setDeletingId(id);
@@ -161,7 +229,7 @@ export default function TeacherPanel() {
     } catch (e) {
       console.error(e);
       if (handleAuthError(e)) return;
-      setQError(e?.response?.data?.error || 'Soru silinemedi.');
+      setQError(e?.response?.data?.error || t({ tr: 'Soru silinemedi.', en: 'Could not delete question.' }));
     } finally {
       setDeletingId(null);
     }
@@ -173,10 +241,16 @@ export default function TeacherPanel() {
         <div className="bg-white rounded-2xl shadow p-6 mb-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <h1 className="text-2xl font-extrabold text-gray-900">Teacher Panel</h1>
-              <p className="text-sm text-gray-600">Öğrencileri görüntüle ve soru bankasına soru ekle</p>
+              <h1 className="text-2xl font-extrabold text-gray-900">{t({ tr: 'Öğretmen Paneli', en: 'Teacher Panel' })}</h1>
+              <p className="text-sm text-gray-600">
+                {t({
+                  tr: 'Öğrencileri görüntüle ve soru bankasını yönet.',
+                  en: 'View students and manage the question bank.'
+                })}
+              </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
+              <LanguageSwitcher />
               <span className="text-sm text-gray-600">{user?.email}</span>
 
               <div className="flex items-center bg-gray-100 rounded-xl p-1">
@@ -186,7 +260,7 @@ export default function TeacherPanel() {
                     tab === 'students' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
-                  Öğrenciler
+                  {t({ tr: 'Öğrenciler', en: 'Students' })}
                 </button>
                 <button
                   onClick={() => setTab('questions')}
@@ -194,28 +268,45 @@ export default function TeacherPanel() {
                     tab === 'questions' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
-                  Soru Bankası
+                  {t({ tr: 'Soru Bankası', en: 'Question Bank' })}
                 </button>
               </div>
 
               {tab === 'students' ? (
-                <button
-                  onClick={loadStudents}
-                  className="px-4 py-2 rounded-xl bg-white border border-gray-200 hover:bg-gray-50 font-semibold"
-                >
-                  Yenile
-                </button>
+                <>
+                  <button
+                    onClick={() => downloadTeacherReport('pdf')}
+                    className="px-4 py-2 rounded-xl bg-indigo-50 text-indigo-700 font-semibold hover:bg-indigo-100"
+                    title={t({ tr: 'Sınıf raporunu PDF olarak indir', en: 'Download class report as PDF' })}
+                  >
+                    📄 {t({ tr: 'PDF Rapor', en: 'PDF Report' })}
+                  </button>
+                  <button
+                    onClick={() => downloadTeacherReport('csv')}
+                    className="px-4 py-2 rounded-xl bg-indigo-50 text-indigo-700 font-semibold hover:bg-indigo-100"
+                    title={t({ tr: 'Sınıf raporunu CSV olarak indir', en: 'Download class report as CSV' })}
+                  >
+                    🧾 CSV
+                  </button>
+
+                  <button
+                    onClick={loadStudents}
+                    className="px-4 py-2 rounded-xl bg-white border border-gray-200 hover:bg-gray-50 font-semibold"
+                  >
+                    {t({ tr: 'Yenile', en: 'Refresh' })}
+                  </button>
+                </>
               ) : (
                 <button
                   onClick={loadQuestions}
                   className="px-4 py-2 rounded-xl bg-white border border-gray-200 hover:bg-gray-50 font-semibold"
                 >
-                  Yenile
+                  {t({ tr: 'Yenile', en: 'Refresh' })}
                 </button>
               )}
 
               <button onClick={logout} className="px-4 py-2 rounded-xl bg-gray-900 text-white hover:bg-black font-semibold">
-                Çıkış
+                {t({ tr: 'Çıkış', en: 'Logout' })}
               </button>
             </div>
           </div>
@@ -224,24 +315,24 @@ export default function TeacherPanel() {
         {tab === 'students' ? (
           <div className="bg-white rounded-2xl shadow overflow-hidden">
             {loadingStudents ? (
-              <div className="p-10 text-center text-gray-600">Yükleniyor...</div>
+              <div className="p-10 text-center text-gray-600">{t({ tr: 'Yükleniyor...', en: 'Loading...' })}</div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Student</th>
-                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Total Exams</th>
-                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Avg</th>
-                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Latest</th>
-                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Actions</th>
+                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">{t({ tr: 'Öğrenci', en: 'Student' })}</th>
+                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">{t({ tr: 'Toplam Sınav', en: 'Total Exams' })}</th>
+                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">{t({ tr: 'Ortalama', en: 'Avg' })}</th>
+                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">{t({ tr: 'Son', en: 'Latest' })}</th>
+                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">{t({ tr: 'İşlemler', en: 'Actions' })}</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-100">
                     {students.length === 0 ? (
                       <tr>
                         <td colSpan={5} className="px-6 py-10 text-center text-gray-500">
-                          Henüz öğrenci bulunamadı.
+                          {t({ tr: 'Henüz öğrenci bulunamadı.', en: 'No students found yet.' })}
                         </td>
                       </tr>
                     ) : (
@@ -269,7 +360,7 @@ export default function TeacherPanel() {
                               onClick={() => openDetails(s)}
                               className="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-700"
                             >
-                              Detay
+                              {t({ tr: 'Detay', en: 'Details' })}
                             </button>
                           </td>
                         </tr>
@@ -283,8 +374,13 @@ export default function TeacherPanel() {
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-white rounded-2xl shadow p-6">
-              <h2 className="text-lg font-extrabold text-gray-900 mb-1">Yeni Grammar (MCQ) Sorusu</h2>
-              <p className="text-sm text-gray-600 mb-6">Eklediğin sorular sınav oluşturma sırasında otomatik havuza dahil olur.</p>
+              <h2 className="text-lg font-extrabold text-gray-900 mb-1">{t({ tr: 'Yeni Grammar (MCQ) Sorusu', en: 'New Grammar (MCQ) Question' })}</h2>
+              <p className="text-sm text-gray-600 mb-6">
+                {t({
+                  tr: 'Eklediğin sorular sınav oluşturma sırasında otomatik havuza dahil olur.',
+                  en: 'Questions you add will automatically be included in the pool when creating exams.'
+                })}
+              </p>
 
               {qError ? (
                 <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm border border-red-200">{qError}</div>
@@ -292,19 +388,19 @@ export default function TeacherPanel() {
 
               <form onSubmit={createQuestion} className="space-y-4">
                 <div>
-                  <label className="text-sm font-semibold text-gray-700">Soru Metni</label>
+                  <label className="text-sm font-semibold text-gray-700">{t({ tr: 'Soru Metni', en: 'Question Text' })}</label>
                   <textarea
                     value={qText}
                     onChange={(e) => setQText(e.target.value)}
                     className="mt-1 w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    placeholder="Örn: I ___ to school every day."
+                    placeholder={t({ tr: 'Örn: I ___ to school every day.', en: 'e.g., I ___ to school every day.' })}
                     rows={3}
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="text-sm font-semibold text-gray-700">Zorluk (CEFR)</label>
+                  <label className="text-sm font-semibold text-gray-700">{t({ tr: 'Zorluk (CEFR)', en: 'Difficulty (CEFR)' })}</label>
                   <select
                     value={qDifficulty}
                     onChange={(e) => setQDifficulty(e.target.value)}
@@ -320,7 +416,7 @@ export default function TeacherPanel() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {qOptions.map((opt, idx) => (
                     <div key={idx}>
-                      <label className="text-sm font-semibold text-gray-700">Seçenek {idx + 1}</label>
+                      <label className="text-sm font-semibold text-gray-700">{t({ tr: `Seçenek ${idx + 1}`, en: `Option ${idx + 1}` })}</label>
                       <input
                         value={opt}
                         onChange={(e) =>
@@ -331,14 +427,14 @@ export default function TeacherPanel() {
                           })
                         }
                         className="mt-1 w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        placeholder={`Option ${idx + 1}`}
+                        placeholder={t({ tr: `Seçenek ${idx + 1}`, en: `Option ${idx + 1}` })}
                       />
                     </div>
                   ))}
                 </div>
 
                 <div>
-                  <label className="text-sm font-semibold text-gray-700">Doğru Seçenek</label>
+                  <label className="text-sm font-semibold text-gray-700">{t({ tr: 'Doğru Seçenek', en: 'Correct Option' })}</label>
                   <select
                     value={qCorrectIndex}
                     onChange={(e) => setQCorrectIndex(Number(e.target.value))}
@@ -346,7 +442,10 @@ export default function TeacherPanel() {
                   >
                     {qOptions.map((o, idx) => (
                       <option key={idx} value={idx}>
-                        {`Seçenek ${idx + 1}${o.trim() ? `: ${o.trim()}` : ''}`}
+                        {t({
+                          tr: `Seçenek ${idx + 1}${o.trim() ? `: ${o.trim()}` : ''}`,
+                          en: `Option ${idx + 1}${o.trim() ? `: ${o.trim()}` : ''}`
+                        })}
                       </option>
                     ))}
                   </select>
@@ -357,7 +456,7 @@ export default function TeacherPanel() {
                   disabled={qSubmitting || !canCreateQuestion}
                   className="w-full py-3 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-700 disabled:opacity-50"
                 >
-                  {qSubmitting ? 'Ekleniyor...' : 'Soru Ekle'}
+                  {qSubmitting ? t({ tr: 'Ekleniyor...', en: 'Adding...' }) : t({ tr: 'Soru Ekle', en: 'Add Question' })}
                 </button>
               </form>
             </div>
@@ -365,21 +464,21 @@ export default function TeacherPanel() {
             <div className="bg-white rounded-2xl shadow p-6">
               <div className="flex items-center justify-between gap-3 mb-4">
                 <div>
-                  <h2 className="text-lg font-extrabold text-gray-900">Son Eklenen Sorular</h2>
-                  <p className="text-sm text-gray-600">(En son 50)</p>
+                  <h2 className="text-lg font-extrabold text-gray-900">{t({ tr: 'Son Eklenen Sorular', en: 'Latest Added Questions' })}</h2>
+                  <p className="text-sm text-gray-600">{t({ tr: '(En son 50)', en: '(Last 50)' })}</p>
                 </div>
                 <button
                   onClick={loadQuestions}
                   className="px-4 py-2 rounded-xl bg-white border border-gray-200 hover:bg-gray-50 font-semibold"
                 >
-                  Yenile
+                  {t({ tr: 'Yenile', en: 'Refresh' })}
                 </button>
               </div>
 
               {loadingQuestions ? (
-                <div className="p-6 text-gray-600">Yükleniyor...</div>
+                <div className="p-6 text-gray-600">{t({ tr: 'Yükleniyor...', en: 'Loading...' })}</div>
               ) : mcqQuestions.length === 0 ? (
-                <div className="p-6 text-gray-600">Henüz soru yok.</div>
+                <div className="p-6 text-gray-600">{t({ tr: 'Henüz soru yok.', en: 'No questions yet.' })}</div>
               ) : (
                 <div className="space-y-4">
                   {mcqQuestions.map((q) => (
@@ -392,9 +491,9 @@ export default function TeacherPanel() {
                             onClick={() => deleteQuestion(q.id)}
                             disabled={deletingId === q.id}
                             className="text-xs font-bold px-3 py-1 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
-                            title="Soruyu sil"
+                            title={t({ tr: 'Soruyu sil', en: 'Delete question' })}
                           >
-                            {deletingId === q.id ? 'Siliniyor...' : 'Sil'}
+                            {deletingId === q.id ? t({ tr: 'Siliniyor...', en: 'Deleting...' }) : t({ tr: 'Sil', en: 'Delete' })}
                           </button>
                         </div>
                       </div>
@@ -422,53 +521,127 @@ export default function TeacherPanel() {
             <div className="p-6 border-b border-gray-100 flex items-center justify-between">
               <div>
                 <div className="text-lg font-extrabold text-gray-900">{modal.student?.email}</div>
-                <div className="text-sm text-gray-600">Exam history</div>
+                <div className="text-sm text-gray-600">{t({ tr: 'Sınav geçmişi', en: 'Exam history' })}</div>
               </div>
-              <button
-                onClick={() => {
-                  setModal({ open: false, student: null });
-                  setDetail(null);
-                }}
-                className="text-2xl leading-none text-gray-500 hover:text-gray-800"
-              >
-                ×
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => downloadStudentReport(modal.student?.id, 'pdf')}
+                  className="px-3 py-2 rounded-xl bg-indigo-50 text-indigo-700 font-semibold hover:bg-indigo-100 text-sm"
+                  title={t({ tr: 'Bu öğrencinin raporunu PDF olarak indir', en: 'Download this student report as PDF' })}
+                >
+                  📄 PDF
+                </button>
+                <button
+                  onClick={() => downloadStudentReport(modal.student?.id, 'csv')}
+                  className="px-3 py-2 rounded-xl bg-indigo-50 text-indigo-700 font-semibold hover:bg-indigo-100 text-sm"
+                  title={t({ tr: 'Bu öğrencinin raporunu CSV olarak indir', en: 'Download this student report as CSV' })}
+                >
+                  🧾 CSV
+                </button>
+
+                <button
+                  onClick={() => {
+                    setModal({ open: false, student: null });
+                    setDetail(null);
+                  }}
+                  className="text-2xl leading-none text-gray-500 hover:text-gray-800 px-2"
+                  aria-label={t({ tr: 'Kapat', en: 'Close' })}
+                >
+                  ×
+                </button>
+              </div>
             </div>
 
             <div className="p-6">
               {!detail ? (
-                <div className="text-gray-600">Yükleniyor...</div>
-              ) : detail.history?.length ? (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Date</th>
-                        <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Level</th>
-                        <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Total</th>
-                        <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Grammar</th>
-                        <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Listening</th>
-                        <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Writing</th>
-                        <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Speaking</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {detail.history.map((r) => (
-                        <tr key={r.id}>
-                          <td className="px-4 py-3 text-sm text-gray-700">{new Date(r.date).toLocaleString()}</td>
-                          <td className="px-4 py-3 text-sm font-semibold text-gray-900">{r.level}</td>
-                          <td className="px-4 py-3 text-sm text-gray-700">{r.score}/100</td>
-                          <td className="px-4 py-3 text-sm text-gray-700">{r.grammarScore}</td>
-                          <td className="px-4 py-3 text-sm text-gray-700">{r.listeningScore}</td>
-                          <td className="px-4 py-3 text-sm text-gray-700">{r.writingScore}</td>
-                          <td className="px-4 py-3 text-sm text-gray-700">{r.speakingScore}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <div className="text-gray-600">{t({ tr: 'Yükleniyor...', en: 'Loading...' })}</div>
               ) : (
-                <div className="text-gray-600">Bu öğrenci henüz sınav çözmemiş.</div>
+                <div className="space-y-8">
+                  {/* Exam history */}
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-extrabold text-gray-900">{t({ tr: 'Sınav Geçmişi', en: 'Exam History' })}</h3>
+                      <span className="text-xs text-gray-500">
+                        {t({ tr: '{n} kayıt', en: '{n} records' }, { n: detail.history?.length || 0 })}
+                      </span>
+                    </div>
+
+                    {detail.history?.length ? (
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">{t({ tr: 'Tarih', en: 'Date' })}</th>
+                              <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">{t({ tr: 'Seviye', en: 'Level' })}</th>
+                              <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">{t({ tr: 'Toplam', en: 'Total' })}</th>
+                              <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Grammar</th>
+                              <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Listening</th>
+                              <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Writing</th>
+                              <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Speaking</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {detail.history.map((r) => (
+                              <tr key={r.id}>
+                                <td className="px-4 py-3 text-sm text-gray-700">{new Date(r.date).toLocaleString()}</td>
+                                <td className="px-4 py-3 text-sm font-semibold text-gray-900">{r.level}</td>
+                                <td className="px-4 py-3 text-sm text-gray-700">{r.score}/100</td>
+                                <td className="px-4 py-3 text-sm text-gray-700">{r.grammarScore}</td>
+                                <td className="px-4 py-3 text-sm text-gray-700">{r.listeningScore}</td>
+                                <td className="px-4 py-3 text-sm text-gray-700">{r.writingScore}</td>
+                                <td className="px-4 py-3 text-sm text-gray-700">{r.speakingScore}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="text-gray-600">{t({ tr: 'Bu öğrenci henüz sınav çözmemiş.', en: 'This student has not taken any exams yet.' })}</div>
+                    )}
+                  </div>
+
+                  {/* Integrity logs (FR15) */}
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-extrabold text-gray-900">{t({ tr: 'Integrity Kayıtları', en: 'Integrity Logs' })}</h3>
+                      <span className="text-xs text-gray-500">{t({ tr: 'Sınav sırasında oluşan şüpheli hareket kayıtları', en: 'Suspicious activity logs during exams' })}</span>
+                    </div>
+
+                    {integrity.loading ? (
+                      <div className="text-gray-600">{t({ tr: 'Yükleniyor...', en: 'Loading...' })}</div>
+                    ) : integrity.error ? (
+                      <div className="p-3 rounded-lg bg-red-50 text-red-700 text-sm border border-red-200">{integrity.error}</div>
+                    ) : integrity.events?.length ? (
+                      <div className="space-y-2">
+                        {integrity.events.slice(0, 50).map((ev) => (
+                          <div key={ev.id} className="border border-gray-200 rounded-xl p-3">
+                            <div className="flex flex-wrap items-center gap-2 justify-between">
+                              <div className="text-sm font-bold text-gray-900">{ev.type}</div>
+                              <div className="text-xs text-gray-500">
+                                {new Date(ev.createdAt).toLocaleString()} • {t({ tr: 'Deneme', en: 'Attempt' })} #{ev.attemptId}
+                              </div>
+                            </div>
+                            {ev.details ? (
+                              <pre className="mt-2 text-xs bg-gray-50 border border-gray-100 rounded-lg p-2 overflow-x-auto">{JSON.stringify(ev.details, null, 2)}</pre>
+                            ) : (
+                              <div className="mt-2 text-xs text-gray-500">{t({ tr: 'Detay yok', en: 'No details' })}</div>
+                            )}
+                          </div>
+                        ))}
+                        {integrity.events.length > 50 ? (
+                          <div className="text-xs text-gray-500">
+                            {t({
+                              tr: 'Not: Görünüm ilk 50 kaydı gösteriyor. (Toplam: {n})',
+                              en: 'Note: This view shows the first 50 records. (Total: {n})'
+                            }, { n: integrity.events.length })}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="text-gray-600">{t({ tr: 'Kayıtlı şüpheli hareket bulunamadı.', en: 'No suspicious activity records found.' })}</div>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           </div>

@@ -455,6 +455,51 @@ export async function logCheatingEvent(userId, type, details = null) {
   });
 }
 
+export async function listCheatingEventsForUser(userId, { take = 200, skip = 0 } = {}) {
+  const id = Number(userId);
+  if (!Number.isFinite(id)) return [];
+
+  const t = Math.max(1, Math.min(500, Number(take) || 200));
+  const s = Math.max(0, Number(skip) || 0);
+
+  const events = await prisma.cheatingEvent.findMany({
+    where: {
+      attempt: {
+        userId: id
+      }
+    },
+    orderBy: { createdAt: 'desc' },
+    take: t,
+    skip: s,
+    include: {
+      attempt: {
+        select: {
+          id: true,
+          status: true,
+          createdAt: true,
+          submittedAt: true
+        }
+      }
+    }
+  });
+
+  return events.map((e) => ({
+    id: e.id,
+    attemptId: e.attemptId,
+    type: e.type,
+    details: fromJsonText(e.details, e.details ?? null),
+    createdAt: e.createdAt.toISOString(),
+    attempt: e.attempt
+      ? {
+          id: e.attempt.id,
+          status: e.attempt.status,
+          createdAt: e.attempt.createdAt.toISOString(),
+          submittedAt: e.attempt.submittedAt ? e.attempt.submittedAt.toISOString() : null
+        }
+      : null
+  }));
+}
+
 // ------------------------------
 // Teacher content management
 // ------------------------------
